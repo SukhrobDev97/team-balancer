@@ -24,3 +24,53 @@ export function parsePlayerNames(text: string): string[] {
     .map((name) => name.trim())
     .filter((name) => name.length > 0);
 }
+
+export function isValidPlayerCount(
+  n: number,
+  min: number,
+  max: number,
+): boolean {
+  return Number.isInteger(n) && n >= min && n <= max;
+}
+
+export function validTeamCounts(
+  playerCount: number,
+  minTeams: number,
+  maxTeams: number,
+  minPerTeam: number,
+): number[] {
+  const max = Math.min(maxTeams, Math.floor(playerCount / minPerTeam));
+  const out: number[] = [];
+  for (let t = minTeams; t <= max; t++) out.push(t);
+  return out;
+}
+
+export function isValidTeamCount(
+  n: number,
+  playerCount: number,
+  minTeams: number,
+  maxTeams: number,
+  minPerTeam: number,
+): boolean {
+  return validTeamCounts(playerCount, minTeams, maxTeams, minPerTeam).includes(
+    n,
+  );
+}
+
+export function remainingSlots(entered: number, total: number): number {
+  return Math.max(0, total - entered);
+}
+
+export function canAddNames(entered: number, total: number, incoming: number): boolean {
+  return incoming > 0 && entered + incoming <= total;
+}
+
+export function balanceLabel(diff: number): string {
+  if (diff <= 1) return "⚖️ Balans: A'lo";
+  if (diff === 2) return '⚖️ Balans: Yaxshi';
+  return '⚖️ Balans: Imkon qadar tenglashtirildi';
+}
+
+export function truncateLabel(text: string, max = 28): string {
+  return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
+}

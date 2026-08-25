@@ -2,111 +2,117 @@ import { config } from 'dotenv';
 import { Telegraf } from 'telegraf';
 import { balanceTeams } from './team-balancer.js';
 import {
+  addPlayers,
+  bulkPrompt,
+  changePlayerTier,
+  dashboardText,
+  emptySession,
+  findPlayer,
+  isComplete,
+  markRosterDirty,
+  playerListText,
+  remaining,
+  removePlayer,
+} from './game.js';
+import {
+  backToPlayerCountKeyboard,
+  bulkInputKeyboard,
+  dashboardKeyboard,
+  playerActionKeyboard,
   playerCountKeyboard,
+  playerEditListKeyboard,
+  playerListKeyboard,
+  playerTierKeyboard,
   resultKeyboard,
   startKeyboard,
   teamCountKeyboard,
-  tierMenuKeyboard,
 } from './keyboards.js';
-import { GameSession, Player, PlayerTier, PLAYER_TIERS } from './types.js';
-import { parsePlayerNames, parsePositiveInt } from './utils.js';
+import {
+  GameSession,
+  MAX_PLAYERS,
+  MAX_TEAMS,
+  MIN_PER_TEAM,
+  MIN_PLAYERS,
+  MIN_TEAMS,
+  Player,
+  PlayerTier,
+} from './types.js';
+import {
+  balanceLabel,
+  isValidPlayerCount,
+  isValidTeamCount,
+  parsePlayerNames,
+  parsePositiveInt,
+} from './utils.js';
 
 config();
 
-const MIN_PLAYERS = 4;
-const MAX_PLAYERS = 50;
-const MIN_TEAMS = 2;
 const TEAM_EMOJIS = ['🔵', '🔴', '🟢', '🟡', '🟣'];
-
 const sessions = new Map<number, GameSession>();
 
-function getUserId(ctx: { from?: { id: number } }): number | undefined {
+const START_TEXT = [
+  "⚽ Jamoalarni adolatli tuzamiz",
+  '',
+  "O'yinchilarni kuchiga qarab kiriting,",
+  'qolganini bot hal qiladi 😎',
+].join('\n');
+
+function uid(ctx: { from?: { id: number } }): number | undefined {
   return ctx.from?.id;
 }
 
-function getSession(userId: number): GameSession | undefined {
+function sessionOf(userId: number): GameSession | undefined {
   return sessions.get(userId);
 }
 
-function resetSession(userId: number): GameSession {
-  const session: GameSession = { userId, players: [], step: 'PLAYER_COUNT' };
-  sessions.set(userId, session);
-  return session;
+function reset(userId: number): GameSession {
+  const s = emptySession(userId);
+  sessions.set(userId, s);
+  return s;
 }
 
-function deleteSession(userId: number): void {
+function clear(userId: number): void {
   sessions.delete(userId);
 }
 
-function remainingSlots(session: GameSession): number {
-  return (session.playerCount ?? 0) - session.players.length;
-}
-
-function isComplete(session: GameSession): boolean {
-  return (
-    session.playerCount != null && session.players.length === session.playerCount
-  );
-}
-
-function tierMenuText(session: GameSession, prefix?: string): string {
-  const total = session.playerCount ?? 0;
-  const counts = Object.fromEntries(PLAYER_TIERS.map((t) => [t, 0])) as Record<
-    PlayerTier,
-    number
-  >;
-  for (const p of session.players) counts[p.tier]++;
-
-  const lines = [
-    `O'yinchilar: ${session.players.length} / ${total}`,
-    '',
-    ...PLAYER_TIERS.map((t) => `${t} — ${counts[t]}`),
-  ];
-
-  if (isComplete(session)) {
-    lines.push('', "✅ Barcha o'yinchilar kiritildi.");
-  } else {
-    lines.push('', 'Darajani tanlang:');
-  }
-
-  return prefix ? `${prefix}\n\n${lines.join('\n')}` : lines.join('\n');
-}
-
-function bulkInputPrompt(tier: PlayerTier): string {
-  return `${tier} darajadagi o'yinchilarni bitta xabarda kiriting.`;
-}
-
-function formatTeams(players: Player[], teamCount: number): string {
+function formatResult(players: Player[], teamCount: number): string {
   const teams = balanceTeams(players, teamCount);
   const scores = teams.map((t) => t.skillScore);
-  const min = Math.min(...scores);
-  const max = Math.max(...scores);
+  const diff = Math.max(...scores) - Math.min(...scores);
 
   const blocks = teams.map((team, i) => {
     const emoji = TEAM_EMOJIS[i] ?? '⚪';
-    const lines = team.players.map(
-      (p, idx) => `${idx + 1}. ${p.name} — ${p.tier}`,
-    );
-    return [`${emoji} TEAM ${i + 1}`, ...lines, '', `Kuch: ${team.skillScore}`].join(
-      '\n',
-    );
+    const lines = team.players.map((p) => `${p.name} · ${p.tier}`);
+    return [`${emoji} JAMOA ${i + 1}`, ...lines].join('\n');
   });
 
-  return [
-    '⚽ JAMOALAR TAYYOR',
-    '',
-    ...blocks,
-    '',
-    `Balans: ${min}–${max}`,
-    `Farq: ${max - min}`,
-  ].join('\n');
+  return ['⚽ JAMOALAR TAYYOR', '', ...blocks, '', balanceLabel(diff)].join(
+    '\n',
+  );
 }
 
-function isValidPlayerCount(n: number): boolean {
-  return n >= MIN_PLAYERS && n <= MAX_PLAYERS;
+async function safeEdit(
+  ctx: {
+    editMessageText: (text: string, extra?: object) => Promise<unknown>;
+    reply: (text: string, extra?: object) => Promise<unknown>;
+  },
+  text: string,
+  extra?: object,
+) {
+  try {
+    await ctx.editMessageText(text, extra);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('message is not modified')) return;
+    await ctx.reply(text, extra);
+  }
 }
 
-function isValidTeamCount(n: number, playerCount: number): boolean {
-  return n >= MIN_TEAMS && n <= playerCount && playerCount / n <= 20;
+function dash(session: GameSession, prefix?: string) {
+  return {
+    text: dashboardText(session, prefix),
+    extra: dashboardKeyboard(session),
+  };
 }
 
 const token = process.env.BOT_TOKEN;
@@ -127,121 +133,130 @@ bot.catch(async (err, ctx) => {
 });
 
 bot.start(async (ctx) => {
-  const userId = getUserId(ctx);
+  const userId = uid(ctx);
   if (!userId) return;
-  deleteSession(userId);
-  await ctx.reply("⚽ Yangi o'yin", startKeyboard);
+  clear(userId);
+  await ctx.reply(START_TEXT, startKeyboard);
 });
 
 bot.command('cancel', async (ctx) => {
-  const userId = getUserId(ctx);
+  const userId = uid(ctx);
   if (!userId) return;
-  deleteSession(userId);
+  clear(userId);
   await ctx.reply("O'yin bekor qilindi.", startKeyboard);
 });
 
-async function beginNewGame(ctx: {
-  from?: { id: number };
-  answerCbQuery: () => Promise<true>;
-  editMessageText: (text: string, extra?: object) => Promise<unknown>;
-}) {
-  const userId = getUserId(ctx);
-  if (!userId) return;
-  await ctx.answerCbQuery();
-  resetSession(userId);
-  await ctx.editMessageText("Nechta o'yinchi qatnashadi?", playerCountKeyboard);
-}
-
 bot.action('new_game', async (ctx) => {
   try {
-    await beginNewGame(ctx);
+    await ctx.answerCbQuery();
+    const userId = uid(ctx);
+    if (!userId) return;
+    reset(userId);
+    await safeEdit(ctx, "👥 Nechta o'yinchi bor?", playerCountKeyboard);
   } catch (err) {
     console.error(err);
     await ctx.reply("❌ Xatolik yuz berdi. Qaytadan urinib ko'ring.");
   }
 });
 
-async function setPlayerCount(
+bot.action('custom_pc', async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const userId = uid(ctx);
+    if (!userId) return;
+    const session = sessionOf(userId);
+    if (!session || session.step !== 'PLAYER_COUNT') return;
+    session.step = 'CUSTOM_PLAYER_COUNT';
+    await safeEdit(
+      ctx,
+      "O'yinchilar sonini yozing:",
+      backToPlayerCountKeyboard,
+    );
+  } catch (err) {
+    console.error(err);
+    await ctx.reply("❌ Xatolik yuz berdi. Qaytadan urinib ko'ring.");
+  }
+});
+
+bot.action('back_pc', async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const userId = uid(ctx);
+    if (!userId) return;
+    const session = sessionOf(userId);
+    if (!session) return;
+    session.playerCount = undefined;
+    session.step = 'PLAYER_COUNT';
+    await safeEdit(ctx, "👥 Nechta o'yinchi bor?", playerCountKeyboard);
+  } catch (err) {
+    console.error(err);
+    await ctx.reply("❌ Xatolik yuz berdi. Qaytadan urinib ko'ring.");
+  }
+});
+
+async function applyPlayerCount(
   ctx: {
-    from?: { id: number };
     reply: (text: string, extra?: object) => Promise<unknown>;
     editMessageText?: (text: string, extra?: object) => Promise<unknown>;
   },
+  session: GameSession,
   count: number,
   edit: boolean,
 ) {
-  const userId = getUserId(ctx);
-  if (!userId) return;
-  const session = getSession(userId);
-  if (!session || session.step !== 'PLAYER_COUNT') {
-    await ctx.reply("Avval ⚽ Yangi o'yin ni bosing.");
-    return;
-  }
-  if (!isValidPlayerCount(count)) {
-    await ctx.reply(
-      `O'yinchilar soni ${MIN_PLAYERS}–${MAX_PLAYERS} oralig'ida bo'lishi kerak.`,
-    );
+  if (!isValidPlayerCount(count, MIN_PLAYERS, MAX_PLAYERS)) {
+    await ctx.reply('❌ 4 dan 50 gacha son kiriting.');
     return;
   }
   session.playerCount = count;
   session.step = 'TEAM_COUNT';
-  const text = 'Nechta jamoaga ajratamiz?';
+  const text = `👥 ${count} o'yinchi\n\n⚽ Nechta jamoa qilamiz?`;
   if (edit && ctx.editMessageText) {
-    await ctx.editMessageText(text, teamCountKeyboard);
+    await ctx.editMessageText(text, teamCountKeyboard(count));
   } else {
-    await ctx.reply(text, teamCountKeyboard);
+    await ctx.reply(text, teamCountKeyboard(count));
   }
 }
 
 bot.action(/^pc:(\d+)$/, async (ctx) => {
   try {
     await ctx.answerCbQuery();
-    const count = Number(ctx.match[1]);
-    await setPlayerCount(ctx, count, true);
+    const userId = uid(ctx);
+    if (!userId) return;
+    const session = sessionOf(userId);
+    if (!session || session.step !== 'PLAYER_COUNT') return;
+    await applyPlayerCount(ctx, session, Number(ctx.match[1]), true);
   } catch (err) {
     console.error(err);
     await ctx.reply("❌ Xatolik yuz berdi. Qaytadan urinib ko'ring.");
   }
 });
 
-async function setTeamCount(
-  ctx: {
-    from?: { id: number };
-    reply: (text: string, extra?: object) => Promise<unknown>;
-    editMessageText?: (text: string, extra?: object) => Promise<unknown>;
-  },
-  count: number,
-  edit: boolean,
-) {
-  const userId = getUserId(ctx);
-  if (!userId) return;
-  const session = getSession(userId);
-  if (!session || session.step !== 'TEAM_COUNT' || !session.playerCount) {
-    await ctx.reply("Avval o'yinchilar sonini kiriting.");
-    return;
-  }
-  if (!isValidTeamCount(count, session.playerCount)) {
-    await ctx.reply(
-      "Jamoalar soni kamida 2 bo'lishi va o'yinchilar sonidan oshmasligi kerak.",
-    );
-    return;
-  }
-  session.teamCount = count;
-  session.step = 'TIER_MENU';
-  session.selectedTier = undefined;
-  const text = tierMenuText(session);
-  if (edit && ctx.editMessageText) {
-    await ctx.editMessageText(text, tierMenuKeyboard);
-  } else {
-    await ctx.reply(text, tierMenuKeyboard);
-  }
-}
-
 bot.action(/^tc:(\d+)$/, async (ctx) => {
   try {
     await ctx.answerCbQuery();
+    const userId = uid(ctx);
+    if (!userId) return;
+    const session = sessionOf(userId);
+    if (!session || session.step !== 'TEAM_COUNT' || !session.playerCount) {
+      return;
+    }
     const count = Number(ctx.match[1]);
-    await setTeamCount(ctx, count, true);
+    if (
+      !isValidTeamCount(
+        count,
+        session.playerCount,
+        MIN_TEAMS,
+        MAX_TEAMS,
+        MIN_PER_TEAM,
+      )
+    ) {
+      await ctx.reply('❌ Bu jamoa soni mos emas.');
+      return;
+    }
+    session.teamCount = count;
+    session.step = 'TIER_MENU';
+    const view = dash(session);
+    await safeEdit(ctx, view.text, view.extra);
   } catch (err) {
     console.error(err);
     await ctx.reply("❌ Xatolik yuz berdi. Qaytadan urinib ko'ring.");
@@ -250,26 +265,206 @@ bot.action(/^tc:(\d+)$/, async (ctx) => {
 
 bot.action(/^add_tier:([ABCDE])$/, async (ctx) => {
   try {
-    await ctx.answerCbQuery();
-    const userId = getUserId(ctx);
+    const userId = uid(ctx);
     if (!userId) return;
-    const session = getSession(userId);
-    if (
-      !session ||
-      (session.step !== 'TIER_MENU' && session.step !== 'TIER_PLAYER_INPUT')
-    ) {
-      await ctx.reply('Avval jamoalar sonini tanlang.');
+    const session = sessionOf(userId);
+    if (!session) {
+      await ctx.answerCbQuery();
       return;
     }
-    const remaining = remainingSlots(session);
-    if (remaining <= 0) {
-      await ctx.editMessageText(tierMenuText(session), tierMenuKeyboard);
+    if (session.step !== 'TIER_MENU' && session.step !== 'TIER_PLAYER_INPUT') {
+      await ctx.answerCbQuery();
       return;
     }
-    const tier = ctx.match[1] as PlayerTier;
-    session.selectedTier = tier;
+    const left = remaining(session);
+    if (left <= 0) {
+      await ctx.answerCbQuery("Hammasi kiritildi.", { show_alert: true });
+      session.sawTierIntro = true;
+      const view = dash(session);
+      await safeEdit(ctx, view.text, view.extra);
+      return;
+    }
+    await ctx.answerCbQuery();
+    session.sawTierIntro = true;
+    session.selectedTier = ctx.match[1] as PlayerTier;
     session.step = 'TIER_PLAYER_INPUT';
-    await ctx.editMessageText(bulkInputPrompt(tier));
+    await safeEdit(ctx, bulkPrompt(session.selectedTier), bulkInputKeyboard);
+  } catch (err) {
+    console.error(err);
+    await ctx.reply("❌ Xatolik yuz berdi. Qaytadan urinib ko'ring.");
+  }
+});
+
+bot.action('back_menu', async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const userId = uid(ctx);
+    if (!userId) return;
+    const session = sessionOf(userId);
+    if (!session) return;
+
+    if (session.listOrigin === 'FINISHED' && isComplete(session) && session.teamCount) {
+      session.step = 'FINISHED';
+      session.selectedTier = undefined;
+      session.selectedPlayerId = undefined;
+      await safeEdit(
+        ctx,
+        formatResult(session.players, session.teamCount),
+        resultKeyboard,
+      );
+      return;
+    }
+
+    session.step = 'TIER_MENU';
+    session.selectedTier = undefined;
+    session.selectedPlayerId = undefined;
+    session.sawTierIntro = true;
+    const view = dash(session);
+    await safeEdit(ctx, view.text, view.extra);
+  } catch (err) {
+    console.error(err);
+    await ctx.reply("❌ Xatolik yuz berdi. Qaytadan urinib ko'ring.");
+  }
+});
+
+bot.action('players', async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const userId = uid(ctx);
+    if (!userId) return;
+    const session = sessionOf(userId);
+    if (!session) return;
+    if (session.step === 'FINISHED') session.listOrigin = 'FINISHED';
+    else session.listOrigin = 'TIER_MENU';
+    session.step = 'PLAYER_LIST';
+    session.sawTierIntro = true;
+    await safeEdit(ctx, playerListText(session), playerListKeyboard());
+  } catch (err) {
+    console.error(err);
+    await ctx.reply("❌ Xatolik yuz berdi. Qaytadan urinib ko'ring.");
+  }
+});
+
+bot.action('edit_list', async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const userId = uid(ctx);
+    if (!userId) return;
+    const session = sessionOf(userId);
+    if (!session) return;
+    session.step = 'PLAYER_EDIT';
+    await safeEdit(
+      ctx,
+      "Qaysi o'yinchini o'zgartiramiz?",
+      playerEditListKeyboard(session.players),
+    );
+  } catch (err) {
+    console.error(err);
+    await ctx.reply("❌ Xatolik yuz berdi. Qaytadan urinib ko'ring.");
+  }
+});
+
+bot.action(/^pe:(p\d+)$/, async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const userId = uid(ctx);
+    if (!userId) return;
+    const session = sessionOf(userId);
+    if (!session) return;
+    const player = findPlayer(session, ctx.match[1]!);
+    if (!player) {
+      await safeEdit(
+        ctx,
+        "Qaysi o'yinchini o'zgartiramiz?",
+        playerEditListKeyboard(session.players),
+      );
+      return;
+    }
+    session.selectedPlayerId = player.id;
+    session.step = 'PLAYER_EDIT';
+    await safeEdit(
+      ctx,
+      `${player.name} · ${player.tier}\n\nNima qilamiz?`,
+      playerActionKeyboard(player),
+    );
+  } catch (err) {
+    console.error(err);
+    await ctx.reply("❌ Xatolik yuz berdi. Qaytadan urinib ko'ring.");
+  }
+});
+
+bot.action(/^ptm:(p\d+)$/, async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const userId = uid(ctx);
+    if (!userId) return;
+    const session = sessionOf(userId);
+    if (!session) return;
+    const player = findPlayer(session, ctx.match[1]!);
+    if (!player) return;
+    session.step = 'PLAYER_TIER_CHANGE';
+    session.selectedPlayerId = player.id;
+    await safeEdit(
+      ctx,
+      `${player.name} · ${player.tier}\n\nYangi daraja:`,
+      playerTierKeyboard(player),
+    );
+  } catch (err) {
+    console.error(err);
+    await ctx.reply("❌ Xatolik yuz berdi. Qaytadan urinib ko'ring.");
+  }
+});
+
+bot.action(/^pt:(p\d+):([ABCDE])$/, async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const userId = uid(ctx);
+    if (!userId) return;
+    const session = sessionOf(userId);
+    if (!session) return;
+    const result = changePlayerTier(
+      session,
+      ctx.match[1]!,
+      ctx.match[2] as PlayerTier,
+    );
+    if (!result) {
+      session.step = 'PLAYER_LIST';
+      await safeEdit(ctx, playerListText(session), playerListKeyboard());
+      return;
+    }
+    markRosterDirty(session);
+    session.listOrigin = 'TIER_MENU';
+    session.step = 'PLAYER_LIST';
+    session.selectedPlayerId = undefined;
+    await safeEdit(
+      ctx,
+      `✅ ${result.name}: ${result.from} → ${result.to}\n\n${playerListText(session)}`,
+      playerListKeyboard(),
+    );
+  } catch (err) {
+    console.error(err);
+    await ctx.reply("❌ Xatolik yuz berdi. Qaytadan urinib ko'ring.");
+  }
+});
+
+bot.action(/^pd:(p\d+)$/, async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const userId = uid(ctx);
+    if (!userId) return;
+    const session = sessionOf(userId);
+    if (!session) return;
+    const removed = removePlayer(session, ctx.match[1]!);
+    markRosterDirty(session);
+    session.listOrigin = 'TIER_MENU';
+    session.step = 'PLAYER_LIST';
+    session.selectedPlayerId = undefined;
+    const prefix = removed ? `✅ ${removed.name} o'chirildi.` : '';
+    await safeEdit(
+      ctx,
+      prefix ? `${prefix}\n\n${playerListText(session)}` : playerListText(session),
+      playerListKeyboard(),
+    );
   } catch (err) {
     console.error(err);
     await ctx.reply("❌ Xatolik yuz berdi. Qaytadan urinib ko'ring.");
@@ -278,41 +473,26 @@ bot.action(/^add_tier:([ABCDE])$/, async (ctx) => {
 
 bot.action('build_teams', async (ctx) => {
   try {
-    await ctx.answerCbQuery();
-    const userId = getUserId(ctx);
+    const userId = uid(ctx);
     if (!userId) return;
-    const session = getSession(userId);
+    const session = sessionOf(userId);
     if (!session || !session.teamCount) {
-      await ctx.reply("Avval o'yinchilarni kiriting.");
+      await ctx.answerCbQuery();
       return;
     }
-
-    if (
-      session.step === 'TIER_MENU' ||
-      session.step === 'TIER_PLAYER_INPUT'
-    ) {
-      const left = remainingSlots(session);
-      if (left > 0) {
-        await ctx.reply(`❌ Yana ${left} ta o'yinchi kiritish kerak.`);
-        session.step = 'TIER_MENU';
-        session.selectedTier = undefined;
-        await ctx.reply(tierMenuText(session), tierMenuKeyboard);
-        return;
-      }
-    } else if (session.step !== 'FINISHED') {
-      await ctx.reply("Hali barcha o'yinchilar kiritilmagan.");
+    const left = remaining(session);
+    if (left > 0 || !isComplete(session)) {
+      await ctx.answerCbQuery(`❌ Yana ${left} ta o'yinchi kerak.`, {
+        show_alert: true,
+      });
       return;
     }
-
-    if (!isComplete(session) || session.players.length === 0) {
-      const left = remainingSlots(session);
-      await ctx.reply(`❌ Yana ${left} ta o'yinchi kiritish kerak.`);
-      return;
-    }
-
+    await ctx.answerCbQuery();
     session.step = 'FINISHED';
-    await ctx.editMessageText(
-      formatTeams(session.players, session.teamCount),
+    session.listOrigin = 'FINISHED';
+    await safeEdit(
+      ctx,
+      formatResult(session.players, session.teamCount),
       resultKeyboard,
     );
   } catch (err) {
@@ -324,15 +504,16 @@ bot.action('build_teams', async (ctx) => {
 bot.action('reshuffle', async (ctx) => {
   try {
     await ctx.answerCbQuery();
-    const userId = getUserId(ctx);
+    const userId = uid(ctx);
     if (!userId) return;
-    const session = getSession(userId);
+    const session = sessionOf(userId);
     if (!session || session.step !== 'FINISHED' || !session.teamCount) {
       await ctx.reply('Avval jamoalarni tuzing.');
       return;
     }
-    await ctx.editMessageText(
-      formatTeams(session.players, session.teamCount),
+    await safeEdit(
+      ctx,
+      formatResult(session.players, session.teamCount),
       resultKeyboard,
     );
   } catch (err) {
@@ -343,38 +524,43 @@ bot.action('reshuffle', async (ctx) => {
 
 bot.on('text', async (ctx) => {
   try {
-    const userId = getUserId(ctx);
+    const userId = uid(ctx);
     if (!userId) return;
-    const session = getSession(userId);
+    const session = sessionOf(userId);
     const text = ctx.message.text;
 
     if (!session) {
-      await ctx.reply("⚽ Yangi o'yin", startKeyboard);
+      await ctx.reply(START_TEXT, startKeyboard);
       return;
     }
 
     if (session.step === 'PLAYER_COUNT') {
+      await ctx.reply('Tugmalardan tanlang yoki ✏️ Boshqa ni bosing.');
+      return;
+    }
+
+    if (session.step === 'CUSTOM_PLAYER_COUNT') {
       const n = parsePositiveInt(text);
-      if (n === null) {
-        await ctx.reply("Raqam kiriting yoki tugmalardan birini bosing.");
+      if (n === null || !isValidPlayerCount(n, MIN_PLAYERS, MAX_PLAYERS)) {
+        await ctx.reply('❌ 4 dan 50 gacha son kiriting.');
         return;
       }
-      await setPlayerCount(ctx, n, false);
+      await applyPlayerCount(ctx, session, n, false);
       return;
     }
 
     if (session.step === 'TEAM_COUNT') {
-      const n = parsePositiveInt(text);
-      if (n === null) {
-        await ctx.reply("Raqam kiriting yoki tugmalardan birini bosing.");
-        return;
-      }
-      await setTeamCount(ctx, n, false);
+      await ctx.reply('Jamoa sonini tugmalardan tanlang.');
       return;
     }
 
-    if (session.step === 'TIER_MENU') {
-      await ctx.reply('Darajani tugmalardan tanlang.', tierMenuKeyboard);
+    if (
+      session.step === 'TIER_MENU' ||
+      session.step === 'PLAYER_LIST' ||
+      session.step === 'PLAYER_EDIT' ||
+      session.step === 'PLAYER_TIER_CHANGE'
+    ) {
+      await ctx.reply('Tugmalardan foydalaning.');
       return;
     }
 
@@ -382,50 +568,38 @@ bot.on('text', async (ctx) => {
       const tier = session.selectedTier;
       if (!tier) {
         session.step = 'TIER_MENU';
-        await ctx.reply(tierMenuText(session), tierMenuKeyboard);
+        const view = dash(session);
+        await ctx.reply(view.text, view.extra);
         return;
       }
 
       const names = parsePlayerNames(text);
       if (names.length === 0) {
-        await ctx.reply("Ism bo'sh bo'lmasin. Qayta kiriting:");
+        await ctx.reply("Ism yozing, qayta yuboring.");
         return;
       }
 
-      const remaining = remainingSlots(session);
-      if (names.length > remaining) {
+      const result = addPlayers(session, names, tier);
+      if (!result.ok) {
         await ctx.reply(
-          [
-            `❌ ${names.length} ta o'yinchi kiritildi, lekin faqat ${remaining} ta joy qoldi.`,
-            '',
-            `Hozir: ${session.players.length} / ${session.playerCount}`,
-          ].join('\n'),
+          `❌ Faqat ${result.remaining} ta joy qoldi.\n\n${result.remaining} ta o'yinchi kiriting.`,
         );
         return;
       }
 
-      for (const name of names) {
-        session.players.push({
-          id: `${userId}-${Date.now()}-${session.players.length}`,
-          name,
-          tier,
-        });
-      }
-
       session.selectedTier = undefined;
       session.step = 'TIER_MENU';
-      await ctx.reply(
-        tierMenuText(
-          session,
-          `✅ ${tier} — ${names.length} ta o'yinchi qo'shildi.`,
-        ),
-        tierMenuKeyboard,
+      session.sawTierIntro = true;
+      const view = dash(
+        session,
+        `✅ ${tier} darajaga ${result.added} ta o'yinchi qo'shildi.`,
       );
+      await ctx.reply(view.text, view.extra);
       return;
     }
 
     if (session.step === 'FINISHED') {
-      await ctx.reply('Tugmalardan birini bosing.', resultKeyboard);
+      await ctx.reply('Tugmalardan foydalaning.', resultKeyboard);
       return;
     }
   } catch (err) {
