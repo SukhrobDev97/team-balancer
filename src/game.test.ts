@@ -4,14 +4,15 @@ import {
   addPlayers,
   changePlayerTier,
   emptySession,
+  goalkeeperCount,
   isComplete,
   markRosterDirty,
   remaining,
   removePlayer,
+  toggleGoalkeeper,
 } from './game.js';
 import { parsePlayerNames } from './utils.js';
 import {
-  balanceLabel,
   canAddNames,
   isValidPlayerCount,
   isValidTeamCount,
@@ -104,6 +105,37 @@ describe('roster edits', () => {
     assert.equal(isComplete(s), false);
   });
 
+  it('empty session defaults to START with Uzbek language', () => {
+    const s = emptySession(1);
+    assert.equal(s.language, 'uz');
+    assert.equal(s.step, 'START');
+  });
+
+  it('goalkeeper toggle and count helpers', () => {
+    const s = emptySession(1);
+    s.playerCount = 3;
+    addPlayers(s, ['Sardor', 'Aziz', 'Bek'], 'A');
+    assert.equal(goalkeeperCount(s.players), 0);
+    assert.equal(s.players.every((p) => p.isGoalkeeper === false), true);
+
+    const toggled = toggleGoalkeeper(s, s.players[0]!.id);
+    assert.equal(toggled?.isGoalkeeper, true);
+    assert.equal(goalkeeperCount(s.players), 1);
+
+    toggleGoalkeeper(s, s.players[1]!.id);
+    assert.equal(goalkeeperCount(s.players), 2);
+
+    changePlayerTier(s, s.players[0]!.id, 'B');
+    assert.equal(s.players[0]!.isGoalkeeper, true);
+    assert.equal(s.players[0]!.tier, 'B');
+
+    removePlayer(s, s.players[0]!.id);
+    assert.equal(goalkeeperCount(s.players), 1);
+
+    addPlayers(s, ['New'], 'C');
+    assert.equal(s.players.at(-1)?.isGoalkeeper, false);
+  });
+
   it('editing after finish invalidates result step', () => {
     const s = emptySession(1);
     s.playerCount = 4;
@@ -138,14 +170,5 @@ describe('roster edits', () => {
       second.flatMap((t) => t.players.map((p) => `${p.id}:${p.tier}:${p.name}`)).sort(),
       roster,
     );
-  });
-});
-
-describe('balance label', () => {
-  it('maps score gap to copy', () => {
-    assert.equal(balanceLabel(0), "⚖️ Balans: A'lo");
-    assert.equal(balanceLabel(1), "⚖️ Balans: A'lo");
-    assert.equal(balanceLabel(2), '⚖️ Balans: Yaxshi');
-    assert.equal(balanceLabel(3), '⚖️ Balans: Imkon qadar tenglashtirildi');
   });
 });

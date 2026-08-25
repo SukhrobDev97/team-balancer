@@ -65,12 +65,6 @@ export function canAddNames(entered: number, total: number, incoming: number): b
   return incoming > 0 && entered + incoming <= total;
 }
 
-export function balanceLabel(diff: number): string {
-  if (diff <= 1) return "⚖️ Balans: A'lo";
-  if (diff === 2) return '⚖️ Balans: Yaxshi';
-  return '⚖️ Balans: Imkon qadar tenglashtirildi';
-}
-
 export function truncateLabel(text: string, max = 28): string {
   return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
 }

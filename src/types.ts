@@ -1,6 +1,9 @@
+export type Language = 'uz' | 'ru' | 'en';
+
 export type PlayerTier = 'A' | 'B' | 'C' | 'D' | 'E';
 
 export type SessionStep =
+  | 'START'
   | 'PLAYER_COUNT'
   | 'CUSTOM_PLAYER_COUNT'
   | 'TEAM_COUNT'
@@ -9,16 +12,19 @@ export type SessionStep =
   | 'PLAYER_LIST'
   | 'PLAYER_EDIT'
   | 'PLAYER_TIER_CHANGE'
+  | 'GOALKEEPER_SELECT'
   | 'FINISHED';
 
 export interface Player {
   id: string;
   name: string;
   tier: PlayerTier;
+  isGoalkeeper: boolean;
 }
 
 export interface GameSession {
   userId: number;
+  language: Language;
   playerCount?: number;
   teamCount?: number;
   players: Player[];

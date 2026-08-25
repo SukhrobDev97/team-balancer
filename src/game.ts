@@ -1,20 +1,36 @@
 import {
   GameSession,
+  Language,
   Player,
   PlayerTier,
   PLAYER_TIERS,
   TIER_STARS,
 } from './types.js';
+import { t } from './i18n.js';
 import { remainingSlots } from './utils.js';
 
-export function emptySession(userId: number): GameSession {
+export function emptySession(userId: number, language: Language = 'uz'): GameSession {
   return {
     userId,
+    language,
     players: [],
     nextPlayerSeq: 1,
     sawTierIntro: false,
-    step: 'PLAYER_COUNT',
+    step: 'START',
   };
+}
+
+export function resetGame(session: GameSession): void {
+  session.playerCount = undefined;
+  session.teamCount = undefined;
+  session.players = [];
+  session.selectedTier = undefined;
+  session.selectedPlayerId = undefined;
+  session.nextPlayerSeq = 1;
+  session.sawTierIntro = false;
+  session.listOrigin = undefined;
+  session.promptMessageId = undefined;
+  session.step = 'PLAYER_COUNT';
 }
 
 export function remaining(session: GameSession): number {
@@ -43,9 +59,24 @@ export function addPlayers(
       id: `p${session.nextPlayerSeq++}`,
       name,
       tier,
+      isGoalkeeper: false,
     });
   }
   return { ok: true, added: names.length };
+}
+
+export function goalkeeperCount(players: Player[]): number {
+  return players.filter((p) => p.isGoalkeeper).length;
+}
+
+export function toggleGoalkeeper(
+  session: GameSession,
+  id: string,
+): Player | undefined {
+  const player = findPlayer(session, id);
+  if (!player) return undefined;
+  player.isGoalkeeper = !player.isGoalkeeper;
+  return player;
 }
 
 export function findPlayer(
@@ -88,67 +119,86 @@ export function tierCounts(players: Player[]): Record<PlayerTier, number> {
 }
 
 export function dashboardText(session: GameSession, prefix?: string): string {
+  const lang = session.language;
   const total = session.playerCount ?? 0;
   const counts = tierCounts(session.players);
   const left = remaining(session);
 
   const lines: string[] = [
-    `👥 O'yinchilar: ${session.players.length} / ${total}`,
-    `⚽ Jamoalar: ${session.teamCount ?? 0}`,
+    t(lang, 'playersProgress', { current: session.players.length, total }),
+    t(lang, 'teamsLabel', { count: session.teamCount ?? 0 }),
+    t(lang, 'goalkeepersLabel', {
+      count: goalkeeperCount(session.players),
+    }),
     '',
   ];
 
   if (!session.sawTierIntro) {
     lines.push(
-      'Darajalar:',
+      t(lang, 'tiersHeader'),
       '',
-      `A ${TIER_STARS.A} — eng kuchli`,
+      `A ${TIER_STARS.A} — ${t(lang, 'tierStrongest')}`,
       `B ${TIER_STARS.B}`,
       `C ${TIER_STARS.C}`,
       `D ${TIER_STARS.D}`,
-      `E ${TIER_STARS.E} — boshlovchi`,
+      `E ${TIER_STARS.E} — ${t(lang, 'tierBeginner')}`,
       '',
-      "Darajani tanlab o'yinchilarni qo'shing:",
+      t(lang, 'tierEntry'),
     );
   } else {
     lines.push(
-      ...PLAYER_TIERS.map((t) => `${t} ${TIER_STARS[t]}  ${counts[t]}`),
+      ...PLAYER_TIERS.map((tier) => `${tier} ${TIER_STARS[tier]}  ${counts[tier]}`),
     );
     if (left > 0) {
-      lines.push('', `Yana ${left} ta o'yinchi kerak.`);
+      lines.push('', t(lang, 'remainingPlayers', { left }));
     } else {
-      lines.push('', "✅ Hammasi tayyor. Jamoalarni tuzing.");
+      lines.push('', t(lang, 'readyState'));
     }
   }
 
   return prefix ? `${prefix}\n\n${lines.join('\n')}` : lines.join('\n');
 }
 
-export function bulkPrompt(tier: PlayerTier): string {
+export function bulkPrompt(lang: Language, tier: PlayerTier): string {
   return [
-    `⭐ ${tier} daraja`,
+    t(lang, 'bulkPromptTitle', { tier }),
     '',
-    "O'yinchilarni bitta xabarda yozing:",
+    t(lang, 'bulkPromptBody'),
     '',
-    'Sardor',
-    'Aziz',
-    'Jasur',
+    t(lang, 'bulkPromptExamples'),
   ].join('\n');
 }
 
 export function playerListText(session: GameSession): string {
+  const lang = session.language;
   const total = session.playerCount ?? 0;
   const lines = [
-    `👥 O'yinchilar — ${session.players.length} / ${total}`,
+    t(lang, 'playerListTitle', {
+      current: session.players.length,
+      total,
+    }),
     '',
   ];
   for (const tier of PLAYER_TIERS) {
     const names = session.players
       .filter((p) => p.tier === tier)
-      .map((p) => p.name);
+      .map((p) => (p.isGoalkeeper ? `🧤 ${p.name}` : p.name));
     lines.push(`${tier} ${TIER_STARS[tier]}`);
-    lines.push(names.length ? names.join(', ') : '—');
+    lines.push(names.length ? names.join(', ') : t(lang, 'emptyList'));
     lines.push('');
   }
   return lines.join('\n').trimEnd();
+}
+
+export function goalkeeperSelectText(session: GameSession): string {
+  const lang = session.language;
+  const count = goalkeeperCount(session.players);
+  return [
+    t(lang, 'goalkeeperSelectTitle'),
+    '',
+    t(lang, 'goalkeepersSelected', { count }),
+    '',
+    t(lang, 'goalkeeperSelectHint'),
+    t(lang, 'goalkeeperSelectMulti'),
+  ].join('\n');
 }

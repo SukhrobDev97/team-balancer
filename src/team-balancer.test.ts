@@ -5,20 +5,29 @@ import { Player, PlayerTier, PLAYER_TIERS, TIER_SCORE } from './types.js';
 
 function makePlayers(
   specs: Array<{ n: number; tier: PlayerTier }> | number,
+  goalkeeperIds: string[] = [],
 ): Player[] {
+  const gk = new Set(goalkeeperIds);
   if (typeof specs === 'number') {
     const n = specs;
     return Array.from({ length: n }, (_, i) => ({
       id: String(i),
       name: `P${i}`,
       tier: PLAYER_TIERS[i % PLAYER_TIERS.length]!,
+      isGoalkeeper: gk.has(String(i)),
     }));
   }
   const players: Player[] = [];
   let id = 0;
   for (const { n, tier } of specs) {
     for (let i = 0; i < n; i++) {
-      players.push({ id: String(id++), name: `P${id}`, tier });
+      const pid = String(id++);
+      players.push({
+        id: pid,
+        name: `P${id}`,
+        tier,
+        isGoalkeeper: gk.has(pid),
+      });
     }
   }
   return players;
@@ -157,5 +166,94 @@ describe('balanceTeams', () => {
         assert.equal(t.players.filter((p) => p.tier === 'E').length, 1);
       }
     }
+  });
+});
+
+function markGoalkeepers(players: Player[], count: number): Player[] {
+  return players.map((p, i) => ({
+    ...p,
+    isGoalkeeper: i < count,
+  }));
+}
+
+function assertGoalkeeperBalance(
+  players: Player[],
+  teamCount: number,
+  runs = 25,
+) {
+  const gkTotal = players.filter((p) => p.isGoalkeeper).length;
+  for (let r = 0; r < runs; r++) {
+    const teams = balanceTeams(players, teamCount);
+    const sizes = teams.map((t) => t.players.length);
+    assert.ok(Math.max(...sizes) - Math.min(...sizes) <= 1);
+
+    const all = teams.flatMap((t) => t.players);
+    assert.deepEqual(
+      all.map((p) => p.id).sort(),
+      players.map((p) => p.id).sort(),
+    );
+
+    const gkCounts = teams.map(
+      (t) => t.players.filter((p) => p.isGoalkeeper).length,
+    );
+    assert.equal(
+      gkCounts.reduce((a, b) => a + b, 0),
+      gkTotal,
+    );
+    if (gkTotal > 0) {
+      assert.ok(
+        Math.max(...gkCounts) - Math.min(...gkCounts) <= 1,
+        `GK spread too high: ${gkCounts.join('/')}`,
+      );
+    }
+
+    const scores = teams.map((t) => t.skillScore);
+    assert.ok(Math.max(...scores) - Math.min(...scores) <= 6);
+  }
+}
+
+describe('goalkeeper balance', () => {
+  it('20 players / 4 teams / 4 GK', () => {
+    assertGoalkeeperBalance(markGoalkeepers(makePlayers(20), 4), 4);
+  });
+
+  it('20 players / 4 teams / 6 GK', () => {
+    assertGoalkeeperBalance(markGoalkeepers(makePlayers(20), 6), 4);
+  });
+
+  it('20 players / 4 teams / 2 GK', () => {
+    assertGoalkeeperBalance(markGoalkeepers(makePlayers(20), 2), 4);
+  });
+
+  it('18 players / 3 teams / 7 GK', () => {
+    assertGoalkeeperBalance(markGoalkeepers(makePlayers(18), 7), 3);
+  });
+
+  it('17 players / 4 teams / 4 GK', () => {
+    assertGoalkeeperBalance(markGoalkeepers(makePlayers(17), 4), 4);
+  });
+
+  it('0 GK keeps prior behavior', () => {
+    const players = markGoalkeepers(makePlayers(20), 0);
+    assertInvariants(players, 4);
+    assertGoalkeeperBalance(players, 4);
+  });
+
+  it('reshuffle preserves goalkeeper flags', () => {
+    const players = markGoalkeepers(makePlayers(20), 5);
+    const flags = Object.fromEntries(
+      players.map((p) => [p.id, p.isGoalkeeper]),
+    );
+    const first = balanceTeams(players, 4);
+    const second = balanceTeams(players, 4);
+    for (const team of [...first, ...second]) {
+      for (const p of team.players) {
+        assert.equal(p.isGoalkeeper, flags[p.id]);
+      }
+    }
+    assert.equal(
+      players.filter((p) => p.isGoalkeeper).length,
+      5,
+    );
   });
 });

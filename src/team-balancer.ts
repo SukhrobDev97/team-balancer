@@ -16,11 +16,21 @@ function countTier(team: Team, tier: PlayerTier): number {
   return team.players.filter((p) => p.tier === tier).length;
 }
 
+function countGoalkeepers(team: Team): number {
+  return team.players.filter((p) => p.isGoalkeeper).length;
+}
+
 function pickTeam(teams: Team[], player: Player): Team {
   const eligible = teams.filter((t) => t.players.length < t.maxPlayers);
-  const currentTierCounts = eligible.map((t) => countTier(t, player.tier));
-  const minTier = Math.min(...currentTierCounts);
-  let candidates = eligible.filter((t) => countTier(t, player.tier) === minTier);
+  let candidates = eligible;
+
+  if (player.isGoalkeeper) {
+    const minGk = Math.min(...candidates.map(countGoalkeepers));
+    candidates = candidates.filter((t) => countGoalkeepers(t) === minGk);
+  }
+
+  const minTier = Math.min(...candidates.map((t) => countTier(t, player.tier)));
+  candidates = candidates.filter((t) => countTier(t, player.tier) === minTier);
 
   const minScore = Math.min(...candidates.map((t) => t.skillScore));
   candidates = candidates.filter((t) => t.skillScore === minScore);
@@ -36,26 +46,32 @@ function skillRange(teams: Team[]): number {
   return Math.max(...scores) - Math.min(...scores);
 }
 
-function canSwap(a: Team, b: Team): boolean {
-  return a.players.length === b.players.length;
+export function goalkeeperRange(teams: Team[]): number {
+  const counts = teams.map(countGoalkeepers);
+  return Math.max(...counts) - Math.min(...counts);
 }
 
 function optimize(teams: Team[]): void {
   for (let iter = 0; iter < MAX_OPTIMIZE_ITERS; iter++) {
     let improved = false;
-    const current = skillRange(teams);
+    const currentGk = goalkeeperRange(teams);
+    const currentSkill = skillRange(teams);
 
     for (let i = 0; i < teams.length; i++) {
       for (let j = i + 1; j < teams.length; j++) {
         const ta = teams[i]!;
         const tb = teams[j]!;
-        if (!canSwap(ta, tb)) continue;
 
         for (let pa = 0; pa < ta.players.length; pa++) {
           for (let pb = 0; pb < tb.players.length; pb++) {
             const playerA = ta.players[pa]!;
             const playerB = tb.players[pb]!;
-            if (playerA.tier === playerB.tier) continue;
+            if (
+              playerA.tier === playerB.tier &&
+              playerA.isGoalkeeper === playerB.isGoalkeeper
+            ) {
+              continue;
+            }
 
             const scoreA =
               ta.skillScore - TIER_SCORE[playerA.tier] + TIER_SCORE[playerB.tier];
@@ -67,8 +83,32 @@ function optimize(teams: Team[]): void {
               if (idx === j) return scoreB;
               return t.skillScore;
             });
-            const next = Math.max(...scores) - Math.min(...scores);
-            if (next < current) {
+            const nextSkill = Math.max(...scores) - Math.min(...scores);
+
+            const gkCounts = teams.map((t, idx) => {
+              if (idx === i) {
+                return (
+                  countGoalkeepers(t) -
+                  (playerA.isGoalkeeper ? 1 : 0) +
+                  (playerB.isGoalkeeper ? 1 : 0)
+                );
+              }
+              if (idx === j) {
+                return (
+                  countGoalkeepers(t) -
+                  (playerB.isGoalkeeper ? 1 : 0) +
+                  (playerA.isGoalkeeper ? 1 : 0)
+                );
+              }
+              return countGoalkeepers(t);
+            });
+            const nextGk = Math.max(...gkCounts) - Math.min(...gkCounts);
+
+            const better =
+              nextGk < currentGk ||
+              (nextGk === currentGk && nextSkill < currentSkill);
+
+            if (better) {
               ta.players[pa] = playerB;
               tb.players[pb] = playerA;
               ta.skillScore = scoreA;

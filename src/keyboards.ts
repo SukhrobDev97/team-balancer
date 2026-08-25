@@ -1,37 +1,53 @@
 import { Markup } from 'telegraf';
-import { GameSession, Player, PLAYER_TIERS } from './types.js';
-import { isComplete } from './game.js';
+import { t } from './i18n.js';
+import { GameSession, Language, Player, PLAYER_TIERS } from './types.js';
+import { goalkeeperCount, isComplete } from './game.js';
 import { truncateLabel, validTeamCounts } from './utils.js';
 import { MAX_TEAMS, MIN_PER_TEAM, MIN_TEAMS } from './types.js';
 
-export const startKeyboard = Markup.inlineKeyboard([
-  [Markup.button.callback('⚽ Jamoa tuzish', 'new_game')],
-]);
+export function languageKeyboard() {
+  return Markup.inlineKeyboard([
+    [Markup.button.callback(t('uz', 'langUz'), 'lang:uz')],
+    [Markup.button.callback(t('uz', 'langRu'), 'lang:ru')],
+    [Markup.button.callback(t('uz', 'langEn'), 'lang:en')],
+  ]);
+}
 
-export const playerCountKeyboard = Markup.inlineKeyboard([
-  [
-    Markup.button.callback('10', 'pc:10'),
-    Markup.button.callback('12', 'pc:12'),
-    Markup.button.callback('14', 'pc:14'),
-  ],
-  [
-    Markup.button.callback('15', 'pc:15'),
-    Markup.button.callback('16', 'pc:16'),
-    Markup.button.callback('18', 'pc:18'),
-  ],
-  [
-    Markup.button.callback('20', 'pc:20'),
-    Markup.button.callback('22', 'pc:22'),
-    Markup.button.callback('24', 'pc:24'),
-  ],
-  [Markup.button.callback('✏️ Boshqa', 'custom_pc')],
-]);
+export function startKeyboard(lang: Language) {
+  return Markup.inlineKeyboard([
+    [Markup.button.callback(t(lang, 'createTeams'), 'new_game')],
+    [Markup.button.callback(t(lang, 'changeLanguage'), 'change_lang')],
+  ]);
+}
 
-export const backToPlayerCountKeyboard = Markup.inlineKeyboard([
-  [Markup.button.callback('⬅️ Orqaga', 'back_pc')],
-]);
+export function playerCountKeyboard(lang: Language) {
+  return Markup.inlineKeyboard([
+    [
+      Markup.button.callback('10', 'pc:10'),
+      Markup.button.callback('12', 'pc:12'),
+      Markup.button.callback('14', 'pc:14'),
+    ],
+    [
+      Markup.button.callback('15', 'pc:15'),
+      Markup.button.callback('16', 'pc:16'),
+      Markup.button.callback('18', 'pc:18'),
+    ],
+    [
+      Markup.button.callback('20', 'pc:20'),
+      Markup.button.callback('22', 'pc:22'),
+      Markup.button.callback('24', 'pc:24'),
+    ],
+    [Markup.button.callback(t(lang, 'customOther'), 'custom_pc')],
+  ]);
+}
 
-export function teamCountKeyboard(playerCount: number) {
+export function backToPlayerCountKeyboard(lang: Language) {
+  return Markup.inlineKeyboard([
+    [Markup.button.callback(t(lang, 'back'), 'back_pc')],
+  ]);
+}
+
+export function teamCountKeyboard(lang: Language, playerCount: number) {
   const options = validTeamCounts(
     playerCount,
     MIN_TEAMS,
@@ -41,20 +57,33 @@ export function teamCountKeyboard(playerCount: number) {
   const rows: ReturnType<typeof Markup.button.callback>[][] = [];
   for (let i = 0; i < options.length; i += 2) {
     const row = options.slice(i, i + 2).map((n) =>
-      Markup.button.callback(`${n} ta`, `tc:${n}`),
+      Markup.button.callback(
+        t(lang, 'teamCountOption', { count: n }),
+        `tc:${n}`,
+      ),
     );
     rows.push(row);
   }
-  rows.push([Markup.button.callback('⬅️ Orqaga', 'back_pc')]);
+  rows.push([Markup.button.callback(t(lang, 'back'), 'back_pc')]);
   return Markup.inlineKeyboard(rows);
 }
 
 export function dashboardKeyboard(session: GameSession) {
+  const lang = session.language;
   const generateLabel = isComplete(session)
-    ? '🎲 JAMOALARNI TUZISH'
-    : `🎲 Jamoalarni tuzish · ${session.players.length}/${session.playerCount ?? 0}`;
+    ? t(lang, 'generateTeamsReady')
+    : t(lang, 'generateTeamsProgress', {
+        current: session.players.length,
+        total: session.playerCount ?? 0,
+      });
 
-  return Markup.inlineKeyboard([
+  const gkCount = goalkeeperCount(session.players);
+  const gkLabel =
+    gkCount > 0
+      ? t(lang, 'goalkeepersButtonCount', { count: gkCount })
+      : t(lang, 'goalkeepersButton');
+
+  const rows: ReturnType<typeof Markup.button.callback>[][] = [
     [
       Markup.button.callback('A', 'add_tier:A'),
       Markup.button.callback('B', 'add_tier:B'),
@@ -64,58 +93,89 @@ export function dashboardKeyboard(session: GameSession) {
       Markup.button.callback('D', 'add_tier:D'),
     ],
     [Markup.button.callback('E', 'add_tier:E')],
-    [Markup.button.callback("👥 O'yinchilar", 'players')],
+  ];
+
+  if (session.players.length > 0) {
+    rows.push([Markup.button.callback(gkLabel, 'goalkeepers')]);
+  }
+
+  rows.push(
+    [Markup.button.callback(t(lang, 'playersButton'), 'players')],
     [Markup.button.callback(generateLabel, 'build_teams')],
-    [Markup.button.callback('🔄 Boshidan', 'new_game')],
-  ]);
+    [Markup.button.callback(t(lang, 'resetGame'), 'new_game')],
+  );
+
+  return Markup.inlineKeyboard(rows);
 }
 
-export const bulkInputKeyboard = Markup.inlineKeyboard([
-  [Markup.button.callback('⬅️ Orqaga', 'back_menu')],
-]);
-
-export function playerListKeyboard() {
+export function bulkInputKeyboard(lang: Language) {
   return Markup.inlineKeyboard([
-    [Markup.button.callback("✏️ O'zgartirish", 'edit_list')],
-    [Markup.button.callback('⬅️ Orqaga', 'back_menu')],
+    [Markup.button.callback(t(lang, 'back'), 'back_menu')],
   ]);
 }
 
-export function playerEditListKeyboard(players: Player[]) {
+export function playerListKeyboard(lang: Language) {
+  return Markup.inlineKeyboard([
+    [Markup.button.callback(t(lang, 'editList'), 'edit_list')],
+    [Markup.button.callback(t(lang, 'back'), 'back_menu')],
+  ]);
+}
+
+export function playerEditListKeyboard(lang: Language, players: Player[]) {
   const rows = players.map((p) => [
     Markup.button.callback(
       truncateLabel(`${p.name} · ${p.tier}`),
       `pe:${p.id}`,
     ),
   ]);
-  rows.push([Markup.button.callback('⬅️ Orqaga', 'players')]);
+  rows.push([Markup.button.callback(t(lang, 'back'), 'players')]);
   return Markup.inlineKeyboard(rows);
 }
 
-export function playerActionKeyboard(player: Player) {
+export function playerActionKeyboard(lang: Language, player: Player) {
   return Markup.inlineKeyboard([
-    [Markup.button.callback("⭐ Darajani o'zgartirish", `ptm:${player.id}`)],
-    [Markup.button.callback("🗑 O'chirish", `pd:${player.id}`)],
-    [Markup.button.callback('⬅️ Orqaga', 'edit_list')],
+    [
+      Markup.button.callback(
+        t(lang, 'changeTierButton'),
+        `ptm:${player.id}`,
+      ),
+    ],
+    [Markup.button.callback(t(lang, 'removeButton'), `pd:${player.id}`)],
+    [Markup.button.callback(t(lang, 'back'), 'edit_list')],
   ]);
 }
 
-export function playerTierKeyboard(player: Player) {
-  const others = PLAYER_TIERS.filter((t) => t !== player.tier);
+export function playerTierKeyboard(lang: Language, player: Player) {
+  const others = PLAYER_TIERS.filter((tier) => tier !== player.tier);
   const rows: ReturnType<typeof Markup.button.callback>[][] = [];
   for (let i = 0; i < others.length; i += 3) {
     rows.push(
       others
         .slice(i, i + 3)
-        .map((t) => Markup.button.callback(t, `pt:${player.id}:${t}`)),
+        .map((tier) => Markup.button.callback(tier, `pt:${player.id}:${tier}`)),
     );
   }
-  rows.push([Markup.button.callback('⬅️ Orqaga', `pe:${player.id}`)]);
+  rows.push([Markup.button.callback(t(lang, 'back'), `pe:${player.id}`)]);
   return Markup.inlineKeyboard(rows);
 }
 
-export const resultKeyboard = Markup.inlineKeyboard([
-  [Markup.button.callback('🔀 Qayta qurish', 'reshuffle')],
-  [Markup.button.callback("👥 O'yinchilar", 'players')],
-  [Markup.button.callback("🆕 Yangi o'yin", 'new_game')],
-]);
+export function goalkeeperKeyboard(lang: Language, players: Player[]) {
+  const rows = players.map((p) => {
+    const base = `${p.name} · ${p.tier}`;
+    const label = p.isGoalkeeper
+      ? truncateLabel(`🧤 ${base} ✓`)
+      : truncateLabel(base);
+    return [Markup.button.callback(label, `gk_toggle:${p.id}`)];
+  });
+  rows.push([Markup.button.callback(t(lang, 'goalkeeperDone'), 'gk_done')]);
+  rows.push([Markup.button.callback(t(lang, 'back'), 'gk_back')]);
+  return Markup.inlineKeyboard(rows);
+}
+
+export function resultKeyboard(lang: Language) {
+  return Markup.inlineKeyboard([
+    [Markup.button.callback(t(lang, 'reshuffle'), 'reshuffle')],
+    [Markup.button.callback(t(lang, 'playersButton'), 'players')],
+    [Markup.button.callback(t(lang, 'newGame'), 'new_game')],
+  ]);
+}

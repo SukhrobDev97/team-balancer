@@ -8,16 +8,22 @@ import {
   dashboardText,
   emptySession,
   findPlayer,
+  goalkeeperSelectText,
   isComplete,
   markRosterDirty,
   playerListText,
   remaining,
   removePlayer,
+  resetGame,
+  toggleGoalkeeper,
 } from './game.js';
+import { t } from './i18n.js';
 import {
   backToPlayerCountKeyboard,
   bulkInputKeyboard,
   dashboardKeyboard,
+  goalkeeperKeyboard,
+  languageKeyboard,
   playerActionKeyboard,
   playerCountKeyboard,
   playerEditListKeyboard,
@@ -29,16 +35,15 @@ import {
 } from './keyboards.js';
 import {
   GameSession,
+  Language,
   MAX_PLAYERS,
   MAX_TEAMS,
   MIN_PER_TEAM,
   MIN_PLAYERS,
   MIN_TEAMS,
-  Player,
   PlayerTier,
 } from './types.js';
 import {
-  balanceLabel,
   isValidPlayerCount,
   isValidTeamCount,
   parsePlayerNames,
@@ -50,13 +55,6 @@ config();
 const TEAM_EMOJIS = ['🔵', '🔴', '🟢', '🟡', '🟣'];
 const sessions = new Map<number, GameSession>();
 
-const START_TEXT = [
-  "⚽ Jamoalarni adolatli tuzamiz",
-  '',
-  "O'yinchilarni kuchiga qarab kiriting,",
-  'qolganini bot hal qiladi 😎',
-].join('\n');
-
 function uid(ctx: { from?: { id: number } }): number | undefined {
   return ctx.from?.id;
 }
@@ -65,30 +63,43 @@ function sessionOf(userId: number): GameSession | undefined {
   return sessions.get(userId);
 }
 
-function reset(userId: number): GameSession {
-  const s = emptySession(userId);
-  sessions.set(userId, s);
-  return s;
-}
-
 function clear(userId: number): void {
   sessions.delete(userId);
 }
 
-function formatResult(players: Player[], teamCount: number): string {
+function createSession(userId: number, language: Language): GameSession {
+  const s = emptySession(userId, language);
+  sessions.set(userId, s);
+  return s;
+}
+
+function formatResult(session: GameSession): string {
+  const { language, players, teamCount } = session;
+  if (!teamCount) return '';
   const teams = balanceTeams(players, teamCount);
-  const scores = teams.map((t) => t.skillScore);
+  const scores = teams.map((team) => team.skillScore);
   const diff = Math.max(...scores) - Math.min(...scores);
 
   const blocks = teams.map((team, i) => {
     const emoji = TEAM_EMOJIS[i] ?? '⚪';
-    const lines = team.players.map((p) => `${p.name} · ${p.tier}`);
-    return [`${emoji} JAMOA ${i + 1}`, ...lines].join('\n');
+    const lines = team.players.map((p) =>
+      p.isGoalkeeper
+        ? `🧤 ${p.name} · ${p.tier}`
+        : `${p.name} · ${p.tier}`,
+    );
+    return [
+      `${emoji} ${t(language, 'teamName', { index: i + 1 })}`,
+      ...lines,
+    ].join('\n');
   });
 
-  return ['⚽ JAMOALAR TAYYOR', '', ...blocks, '', balanceLabel(diff)].join(
-    '\n',
-  );
+  return [
+    t(language, 'resultTitle'),
+    '',
+    ...blocks,
+    '',
+    t(language, 'balanceLabel', { diff }),
+  ].join('\n');
 }
 
 async function safeEdit(
@@ -115,6 +126,122 @@ function dash(session: GameSession, prefix?: string) {
   };
 }
 
+async function showLanguagePicker(
+  ctx: {
+    reply: (text: string, extra?: object) => Promise<unknown>;
+    editMessageText: (text: string, extra?: object) => Promise<unknown>;
+  },
+  edit = false,
+) {
+  const text = t('uz', 'languageSelectTitle');
+  const extra = languageKeyboard();
+  if (edit) {
+    await safeEdit(ctx, text, extra);
+  } else {
+    await ctx.reply(text, extra);
+  }
+}
+
+async function renderSession(
+  ctx: {
+    editMessageText: (text: string, extra?: object) => Promise<unknown>;
+    reply: (text: string, extra?: object) => Promise<unknown>;
+  },
+  session: GameSession,
+  prefix?: string,
+) {
+  const lang = session.language;
+  switch (session.step) {
+    case 'START':
+      await safeEdit(ctx, t(lang, 'startText'), startKeyboard(lang));
+      break;
+    case 'PLAYER_COUNT':
+      await safeEdit(ctx, t(lang, 'playerCount'), playerCountKeyboard(lang));
+      break;
+    case 'CUSTOM_PLAYER_COUNT':
+      await safeEdit(
+        ctx,
+        t(lang, 'customPlayerCountPrompt'),
+        backToPlayerCountKeyboard(lang),
+      );
+      break;
+    case 'TEAM_COUNT':
+      if (session.playerCount) {
+        await safeEdit(
+          ctx,
+          t(lang, 'teamCountHeader', { count: session.playerCount }),
+          teamCountKeyboard(lang, session.playerCount),
+        );
+      }
+      break;
+    case 'TIER_MENU':
+    case 'TIER_PLAYER_INPUT': {
+      session.step = 'TIER_MENU';
+      session.selectedTier = undefined;
+      const view = dash(session, prefix);
+      await safeEdit(ctx, view.text, view.extra);
+      break;
+    }
+    case 'PLAYER_LIST':
+      await safeEdit(
+        ctx,
+        prefix ? `${prefix}\n\n${playerListText(session)}` : playerListText(session),
+        playerListKeyboard(lang),
+      );
+      break;
+    case 'PLAYER_EDIT':
+      await safeEdit(
+        ctx,
+        t(lang, 'whichPlayerEdit'),
+        playerEditListKeyboard(lang, session.players),
+      );
+      break;
+    case 'PLAYER_TIER_CHANGE': {
+      const player = session.selectedPlayerId
+        ? findPlayer(session, session.selectedPlayerId)
+        : undefined;
+      if (player) {
+        await safeEdit(
+          ctx,
+          t(lang, 'newTierPrompt', { name: player.name, tier: player.tier }),
+          playerTierKeyboard(lang, player),
+        );
+      } else {
+        await safeEdit(
+          ctx,
+          t(lang, 'whichPlayerEdit'),
+          playerEditListKeyboard(lang, session.players),
+        );
+      }
+      break;
+    }
+    case 'GOALKEEPER_SELECT':
+      await safeEdit(
+        ctx,
+        goalkeeperSelectText(session),
+        goalkeeperKeyboard(lang, session.players),
+      );
+      break;
+    case 'FINISHED':
+      if (session.teamCount) {
+        await safeEdit(
+          ctx,
+          formatResult(session),
+          resultKeyboard(lang),
+        );
+      }
+      break;
+  }
+}
+
+async function replyError(
+  ctx: { reply: (text: string, extra?: object) => Promise<unknown> },
+  userId?: number,
+) {
+  const lang = userId ? sessionOf(userId)?.language : undefined;
+  await ctx.reply(t(lang ?? 'uz', 'genericError'));
+}
+
 const token = process.env.BOT_TOKEN;
 if (!token) {
   console.error('BOT_TOKEN is required');
@@ -126,7 +253,8 @@ const bot = new Telegraf(token);
 bot.catch(async (err, ctx) => {
   console.error(err);
   try {
-    await ctx.reply("❌ Xatolik yuz berdi. Qaytadan urinib ko'ring.");
+    const userId = uid(ctx);
+    await replyError(ctx, userId);
   } catch (replyErr) {
     console.error(replyErr);
   }
@@ -136,14 +264,48 @@ bot.start(async (ctx) => {
   const userId = uid(ctx);
   if (!userId) return;
   clear(userId);
-  await ctx.reply(START_TEXT, startKeyboard);
+  await showLanguagePicker(ctx);
 });
 
 bot.command('cancel', async (ctx) => {
   const userId = uid(ctx);
   if (!userId) return;
+  const session = sessionOf(userId);
+  const lang = session?.language;
   clear(userId);
-  await ctx.reply("O'yin bekor qilindi.", startKeyboard);
+  await ctx.reply(
+    lang ? t(lang, 'cancelMessage') : t('uz', 'cancelMultilingual'),
+    languageKeyboard(),
+  );
+});
+
+bot.action(/^lang:(uz|ru|en)$/, async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const userId = uid(ctx);
+    if (!userId) return;
+    const language = ctx.match[1] as Language;
+    let session = sessionOf(userId);
+    if (!session) {
+      session = createSession(userId, language);
+    } else {
+      session.language = language;
+    }
+    await renderSession(ctx, session);
+  } catch (err) {
+    console.error(err);
+    await replyError(ctx, uid(ctx));
+  }
+});
+
+bot.action('change_lang', async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    await showLanguagePicker(ctx, true);
+  } catch (err) {
+    console.error(err);
+    await replyError(ctx, uid(ctx));
+  }
 });
 
 bot.action('new_game', async (ctx) => {
@@ -151,11 +313,20 @@ bot.action('new_game', async (ctx) => {
     await ctx.answerCbQuery();
     const userId = uid(ctx);
     if (!userId) return;
-    reset(userId);
-    await safeEdit(ctx, "👥 Nechta o'yinchi bor?", playerCountKeyboard);
+    let session = sessionOf(userId);
+    if (!session) {
+      await showLanguagePicker(ctx);
+      return;
+    }
+    resetGame(session);
+    await safeEdit(
+      ctx,
+      t(session.language, 'playerCount'),
+      playerCountKeyboard(session.language),
+    );
   } catch (err) {
     console.error(err);
-    await ctx.reply("❌ Xatolik yuz berdi. Qaytadan urinib ko'ring.");
+    await replyError(ctx, uid(ctx));
   }
 });
 
@@ -169,12 +340,12 @@ bot.action('custom_pc', async (ctx) => {
     session.step = 'CUSTOM_PLAYER_COUNT';
     await safeEdit(
       ctx,
-      "O'yinchilar sonini yozing:",
-      backToPlayerCountKeyboard,
+      t(session.language, 'customPlayerCountPrompt'),
+      backToPlayerCountKeyboard(session.language),
     );
   } catch (err) {
     console.error(err);
-    await ctx.reply("❌ Xatolik yuz berdi. Qaytadan urinib ko'ring.");
+    await replyError(ctx, uid(ctx));
   }
 });
 
@@ -187,10 +358,14 @@ bot.action('back_pc', async (ctx) => {
     if (!session) return;
     session.playerCount = undefined;
     session.step = 'PLAYER_COUNT';
-    await safeEdit(ctx, "👥 Nechta o'yinchi bor?", playerCountKeyboard);
+    await safeEdit(
+      ctx,
+      t(session.language, 'playerCount'),
+      playerCountKeyboard(session.language),
+    );
   } catch (err) {
     console.error(err);
-    await ctx.reply("❌ Xatolik yuz berdi. Qaytadan urinib ko'ring.");
+    await replyError(ctx, uid(ctx));
   }
 });
 
@@ -203,17 +378,19 @@ async function applyPlayerCount(
   count: number,
   edit: boolean,
 ) {
+  const lang = session.language;
   if (!isValidPlayerCount(count, MIN_PLAYERS, MAX_PLAYERS)) {
-    await ctx.reply('❌ 4 dan 50 gacha son kiriting.');
+    await ctx.reply(t(lang, 'invalidPlayerCount'));
     return;
   }
   session.playerCount = count;
   session.step = 'TEAM_COUNT';
-  const text = `👥 ${count} o'yinchi\n\n⚽ Nechta jamoa qilamiz?`;
+  const text = t(lang, 'teamCountHeader', { count });
+  const extra = teamCountKeyboard(lang, count);
   if (edit && ctx.editMessageText) {
-    await ctx.editMessageText(text, teamCountKeyboard(count));
+    await ctx.editMessageText(text, extra);
   } else {
-    await ctx.reply(text, teamCountKeyboard(count));
+    await ctx.reply(text, extra);
   }
 }
 
@@ -227,7 +404,7 @@ bot.action(/^pc:(\d+)$/, async (ctx) => {
     await applyPlayerCount(ctx, session, Number(ctx.match[1]), true);
   } catch (err) {
     console.error(err);
-    await ctx.reply("❌ Xatolik yuz berdi. Qaytadan urinib ko'ring.");
+    await replyError(ctx, uid(ctx));
   }
 });
 
@@ -250,7 +427,7 @@ bot.action(/^tc:(\d+)$/, async (ctx) => {
         MIN_PER_TEAM,
       )
     ) {
-      await ctx.reply('❌ Bu jamoa soni mos emas.');
+      await ctx.reply(t(session.language, 'invalidTeamCount'));
       return;
     }
     session.teamCount = count;
@@ -259,7 +436,7 @@ bot.action(/^tc:(\d+)$/, async (ctx) => {
     await safeEdit(ctx, view.text, view.extra);
   } catch (err) {
     console.error(err);
-    await ctx.reply("❌ Xatolik yuz berdi. Qaytadan urinib ko'ring.");
+    await replyError(ctx, uid(ctx));
   }
 });
 
@@ -276,9 +453,10 @@ bot.action(/^add_tier:([ABCDE])$/, async (ctx) => {
       await ctx.answerCbQuery();
       return;
     }
+    const lang = session.language;
     const left = remaining(session);
     if (left <= 0) {
-      await ctx.answerCbQuery("Hammasi kiritildi.", { show_alert: true });
+      await ctx.answerCbQuery(t(lang, 'allEnteredAlert'), { show_alert: true });
       session.sawTierIntro = true;
       const view = dash(session);
       await safeEdit(ctx, view.text, view.extra);
@@ -288,10 +466,14 @@ bot.action(/^add_tier:([ABCDE])$/, async (ctx) => {
     session.sawTierIntro = true;
     session.selectedTier = ctx.match[1] as PlayerTier;
     session.step = 'TIER_PLAYER_INPUT';
-    await safeEdit(ctx, bulkPrompt(session.selectedTier), bulkInputKeyboard);
+    await safeEdit(
+      ctx,
+      bulkPrompt(lang, session.selectedTier),
+      bulkInputKeyboard(lang),
+    );
   } catch (err) {
     console.error(err);
-    await ctx.reply("❌ Xatolik yuz berdi. Qaytadan urinib ko'ring.");
+    await replyError(ctx, uid(ctx));
   }
 });
 
@@ -303,14 +485,18 @@ bot.action('back_menu', async (ctx) => {
     const session = sessionOf(userId);
     if (!session) return;
 
-    if (session.listOrigin === 'FINISHED' && isComplete(session) && session.teamCount) {
+    if (
+      session.listOrigin === 'FINISHED' &&
+      isComplete(session) &&
+      session.teamCount
+    ) {
       session.step = 'FINISHED';
       session.selectedTier = undefined;
       session.selectedPlayerId = undefined;
       await safeEdit(
         ctx,
-        formatResult(session.players, session.teamCount),
-        resultKeyboard,
+        formatResult(session),
+        resultKeyboard(session.language),
       );
       return;
     }
@@ -323,7 +509,7 @@ bot.action('back_menu', async (ctx) => {
     await safeEdit(ctx, view.text, view.extra);
   } catch (err) {
     console.error(err);
-    await ctx.reply("❌ Xatolik yuz berdi. Qaytadan urinib ko'ring.");
+    await replyError(ctx, uid(ctx));
   }
 });
 
@@ -338,10 +524,70 @@ bot.action('players', async (ctx) => {
     else session.listOrigin = 'TIER_MENU';
     session.step = 'PLAYER_LIST';
     session.sawTierIntro = true;
-    await safeEdit(ctx, playerListText(session), playerListKeyboard());
+    await safeEdit(
+      ctx,
+      playerListText(session),
+      playerListKeyboard(session.language),
+    );
   } catch (err) {
     console.error(err);
-    await ctx.reply("❌ Xatolik yuz berdi. Qaytadan urinib ko'ring.");
+    await replyError(ctx, uid(ctx));
+  }
+});
+
+bot.action('goalkeepers', async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const userId = uid(ctx);
+    if (!userId) return;
+    const session = sessionOf(userId);
+    if (!session || session.players.length === 0) return;
+    session.step = 'GOALKEEPER_SELECT';
+    session.sawTierIntro = true;
+    await safeEdit(
+      ctx,
+      goalkeeperSelectText(session),
+      goalkeeperKeyboard(session.language, session.players),
+    );
+  } catch (err) {
+    console.error(err);
+    await replyError(ctx, uid(ctx));
+  }
+});
+
+bot.action(/^gk_toggle:(p\d+)$/, async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const userId = uid(ctx);
+    if (!userId) return;
+    const session = sessionOf(userId);
+    if (!session || session.step !== 'GOALKEEPER_SELECT') return;
+    toggleGoalkeeper(session, ctx.match[1]!);
+    await safeEdit(
+      ctx,
+      goalkeeperSelectText(session),
+      goalkeeperKeyboard(session.language, session.players),
+    );
+  } catch (err) {
+    console.error(err);
+    await replyError(ctx, uid(ctx));
+  }
+});
+
+bot.action(['gk_done', 'gk_back'], async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const userId = uid(ctx);
+    if (!userId) return;
+    const session = sessionOf(userId);
+    if (!session) return;
+    session.step = 'TIER_MENU';
+    session.sawTierIntro = true;
+    const view = dash(session);
+    await safeEdit(ctx, view.text, view.extra);
+  } catch (err) {
+    console.error(err);
+    await replyError(ctx, uid(ctx));
   }
 });
 
@@ -355,12 +601,12 @@ bot.action('edit_list', async (ctx) => {
     session.step = 'PLAYER_EDIT';
     await safeEdit(
       ctx,
-      "Qaysi o'yinchini o'zgartiramiz?",
-      playerEditListKeyboard(session.players),
+      t(session.language, 'whichPlayerEdit'),
+      playerEditListKeyboard(session.language, session.players),
     );
   } catch (err) {
     console.error(err);
-    await ctx.reply("❌ Xatolik yuz berdi. Qaytadan urinib ko'ring.");
+    await replyError(ctx, uid(ctx));
   }
 });
 
@@ -371,12 +617,13 @@ bot.action(/^pe:(p\d+)$/, async (ctx) => {
     if (!userId) return;
     const session = sessionOf(userId);
     if (!session) return;
+    const lang = session.language;
     const player = findPlayer(session, ctx.match[1]!);
     if (!player) {
       await safeEdit(
         ctx,
-        "Qaysi o'yinchini o'zgartiramiz?",
-        playerEditListKeyboard(session.players),
+        t(lang, 'whichPlayerEdit'),
+        playerEditListKeyboard(lang, session.players),
       );
       return;
     }
@@ -384,12 +631,12 @@ bot.action(/^pe:(p\d+)$/, async (ctx) => {
     session.step = 'PLAYER_EDIT';
     await safeEdit(
       ctx,
-      `${player.name} · ${player.tier}\n\nNima qilamiz?`,
-      playerActionKeyboard(player),
+      t(lang, 'playerActions', { name: player.name, tier: player.tier }),
+      playerActionKeyboard(lang, player),
     );
   } catch (err) {
     console.error(err);
-    await ctx.reply("❌ Xatolik yuz berdi. Qaytadan urinib ko'ring.");
+    await replyError(ctx, uid(ctx));
   }
 });
 
@@ -400,18 +647,19 @@ bot.action(/^ptm:(p\d+)$/, async (ctx) => {
     if (!userId) return;
     const session = sessionOf(userId);
     if (!session) return;
+    const lang = session.language;
     const player = findPlayer(session, ctx.match[1]!);
     if (!player) return;
     session.step = 'PLAYER_TIER_CHANGE';
     session.selectedPlayerId = player.id;
     await safeEdit(
       ctx,
-      `${player.name} · ${player.tier}\n\nYangi daraja:`,
-      playerTierKeyboard(player),
+      t(lang, 'newTierPrompt', { name: player.name, tier: player.tier }),
+      playerTierKeyboard(lang, player),
     );
   } catch (err) {
     console.error(err);
-    await ctx.reply("❌ Xatolik yuz berdi. Qaytadan urinib ko'ring.");
+    await replyError(ctx, uid(ctx));
   }
 });
 
@@ -422,6 +670,7 @@ bot.action(/^pt:(p\d+):([ABCDE])$/, async (ctx) => {
     if (!userId) return;
     const session = sessionOf(userId);
     if (!session) return;
+    const lang = session.language;
     const result = changePlayerTier(
       session,
       ctx.match[1]!,
@@ -429,21 +678,30 @@ bot.action(/^pt:(p\d+):([ABCDE])$/, async (ctx) => {
     );
     if (!result) {
       session.step = 'PLAYER_LIST';
-      await safeEdit(ctx, playerListText(session), playerListKeyboard());
+      await safeEdit(
+        ctx,
+        playerListText(session),
+        playerListKeyboard(lang),
+      );
       return;
     }
     markRosterDirty(session);
     session.listOrigin = 'TIER_MENU';
     session.step = 'PLAYER_LIST';
     session.selectedPlayerId = undefined;
+    const prefix = t(lang, 'tierChanged', {
+      name: result.name,
+      from: result.from,
+      to: result.to,
+    });
     await safeEdit(
       ctx,
-      `✅ ${result.name}: ${result.from} → ${result.to}\n\n${playerListText(session)}`,
-      playerListKeyboard(),
+      `${prefix}\n\n${playerListText(session)}`,
+      playerListKeyboard(lang),
     );
   } catch (err) {
     console.error(err);
-    await ctx.reply("❌ Xatolik yuz berdi. Qaytadan urinib ko'ring.");
+    await replyError(ctx, uid(ctx));
   }
 });
 
@@ -454,20 +712,21 @@ bot.action(/^pd:(p\d+)$/, async (ctx) => {
     if (!userId) return;
     const session = sessionOf(userId);
     if (!session) return;
+    const lang = session.language;
     const removed = removePlayer(session, ctx.match[1]!);
     markRosterDirty(session);
     session.listOrigin = 'TIER_MENU';
     session.step = 'PLAYER_LIST';
     session.selectedPlayerId = undefined;
-    const prefix = removed ? `✅ ${removed.name} o'chirildi.` : '';
+    const prefix = removed ? t(lang, 'playerRemoved', { name: removed.name }) : '';
     await safeEdit(
       ctx,
       prefix ? `${prefix}\n\n${playerListText(session)}` : playerListText(session),
-      playerListKeyboard(),
+      playerListKeyboard(lang),
     );
   } catch (err) {
     console.error(err);
-    await ctx.reply("❌ Xatolik yuz berdi. Qaytadan urinib ko'ring.");
+    await replyError(ctx, uid(ctx));
   }
 });
 
@@ -480,9 +739,10 @@ bot.action('build_teams', async (ctx) => {
       await ctx.answerCbQuery();
       return;
     }
+    const lang = session.language;
     const left = remaining(session);
     if (left > 0 || !isComplete(session)) {
-      await ctx.answerCbQuery(`❌ Yana ${left} ta o'yinchi kerak.`, {
+      await ctx.answerCbQuery(t(lang, 'needMorePlayersAlert', { left }), {
         show_alert: true,
       });
       return;
@@ -490,14 +750,10 @@ bot.action('build_teams', async (ctx) => {
     await ctx.answerCbQuery();
     session.step = 'FINISHED';
     session.listOrigin = 'FINISHED';
-    await safeEdit(
-      ctx,
-      formatResult(session.players, session.teamCount),
-      resultKeyboard,
-    );
+    await safeEdit(ctx, formatResult(session), resultKeyboard(lang));
   } catch (err) {
     console.error(err);
-    await ctx.reply("❌ Xatolik yuz berdi. Qaytadan urinib ko'ring.");
+    await replyError(ctx, uid(ctx));
   }
 });
 
@@ -508,17 +764,17 @@ bot.action('reshuffle', async (ctx) => {
     if (!userId) return;
     const session = sessionOf(userId);
     if (!session || session.step !== 'FINISHED' || !session.teamCount) {
-      await ctx.reply('Avval jamoalarni tuzing.');
+      await ctx.reply(t(session?.language ?? 'uz', 'buildTeamsFirst'));
       return;
     }
     await safeEdit(
       ctx,
-      formatResult(session.players, session.teamCount),
-      resultKeyboard,
+      formatResult(session),
+      resultKeyboard(session.language),
     );
   } catch (err) {
     console.error(err);
-    await ctx.reply("❌ Xatolik yuz berdi. Qaytadan urinib ko'ring.");
+    await replyError(ctx, uid(ctx));
   }
 });
 
@@ -530,19 +786,26 @@ bot.on('text', async (ctx) => {
     const text = ctx.message.text;
 
     if (!session) {
-      await ctx.reply(START_TEXT, startKeyboard);
+      await showLanguagePicker(ctx);
+      return;
+    }
+
+    const lang = session.language;
+
+    if (session.step === 'START') {
+      await ctx.reply(t(lang, 'useButtons'), startKeyboard(lang));
       return;
     }
 
     if (session.step === 'PLAYER_COUNT') {
-      await ctx.reply('Tugmalardan tanlang yoki ✏️ Boshqa ni bosing.');
+      await ctx.reply(t(lang, 'useButtonsPlayerCount'));
       return;
     }
 
     if (session.step === 'CUSTOM_PLAYER_COUNT') {
       const n = parsePositiveInt(text);
       if (n === null || !isValidPlayerCount(n, MIN_PLAYERS, MAX_PLAYERS)) {
-        await ctx.reply('❌ 4 dan 50 gacha son kiriting.');
+        await ctx.reply(t(lang, 'invalidPlayerCount'));
         return;
       }
       await applyPlayerCount(ctx, session, n, false);
@@ -550,7 +813,7 @@ bot.on('text', async (ctx) => {
     }
 
     if (session.step === 'TEAM_COUNT') {
-      await ctx.reply('Jamoa sonini tugmalardan tanlang.');
+      await ctx.reply(t(lang, 'useButtonsTeamCount'));
       return;
     }
 
@@ -558,9 +821,10 @@ bot.on('text', async (ctx) => {
       session.step === 'TIER_MENU' ||
       session.step === 'PLAYER_LIST' ||
       session.step === 'PLAYER_EDIT' ||
-      session.step === 'PLAYER_TIER_CHANGE'
+      session.step === 'PLAYER_TIER_CHANGE' ||
+      session.step === 'GOALKEEPER_SELECT'
     ) {
-      await ctx.reply('Tugmalardan foydalaning.');
+      await ctx.reply(t(lang, 'useButtons'));
       return;
     }
 
@@ -575,14 +839,14 @@ bot.on('text', async (ctx) => {
 
       const names = parsePlayerNames(text);
       if (names.length === 0) {
-        await ctx.reply("Ism yozing, qayta yuboring.");
+        await ctx.reply(t(lang, 'enterNameRetry'));
         return;
       }
 
       const result = addPlayers(session, names, tier);
       if (!result.ok) {
         await ctx.reply(
-          `❌ Faqat ${result.remaining} ta joy qoldi.\n\n${result.remaining} ta o'yinchi kiriting.`,
+          t(lang, 'tooManyNames', { remaining: result.remaining }),
         );
         return;
       }
@@ -592,19 +856,19 @@ bot.on('text', async (ctx) => {
       session.sawTierIntro = true;
       const view = dash(
         session,
-        `✅ ${tier} darajaga ${result.added} ta o'yinchi qo'shildi.`,
+        t(lang, 'playersAdded', { tier, count: result.added }),
       );
       await ctx.reply(view.text, view.extra);
       return;
     }
 
     if (session.step === 'FINISHED') {
-      await ctx.reply('Tugmalardan foydalaning.', resultKeyboard);
+      await ctx.reply(t(lang, 'useButtons'), resultKeyboard(lang));
       return;
     }
   } catch (err) {
     console.error(err);
-    await ctx.reply("❌ Xatolik yuz berdi. Qaytadan urinib ko'ring.");
+    await replyError(ctx, uid(ctx));
   }
 });
 
