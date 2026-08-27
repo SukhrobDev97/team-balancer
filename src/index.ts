@@ -62,6 +62,7 @@ import {
   parsePlayerNames,
   parsePositiveInt,
   safeEditMessage,
+  shouldHandlePrivateGameText,
 } from './utils.js';
 
 config();
@@ -803,13 +804,21 @@ bot.action('reshuffle', async (ctx) => {
   }
 });
 
+registerMatchHandlers(bot);
+registerTeamPrepHandlers(bot);
+registerMotmHandlers(bot);
+
 bot.on('text', async (ctx) => {
   try {
     const userId = uid(ctx);
     if (!userId) return;
     const text = ctx.message.text;
 
-    if (ctx.chat?.type === 'private' && getDraft(userId)) {
+    if (!shouldHandlePrivateGameText(ctx.chat?.type, text)) {
+      return;
+    }
+
+    if (getDraft(userId)) {
       const handled = await handleMatchSetupText(ctx, userId, text);
       if (handled) return;
     }
@@ -902,10 +911,6 @@ bot.on('text', async (ctx) => {
     await replyError(ctx, uid(ctx));
   }
 });
-
-registerMatchHandlers(bot);
-registerTeamPrepHandlers(bot);
-registerMotmHandlers(bot);
 
 bot.launch().then(async () => {
   const me = await bot.telegram.getMe();

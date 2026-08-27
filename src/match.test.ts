@@ -24,6 +24,7 @@ import {
   validateSetupToken,
 } from './match.js';
 import { MatchSession, MatchSetupDraft } from './types.js';
+import { shouldHandlePrivateGameText } from './utils.js';
 
 function emptyMatch(overrides: Partial<MatchSession> = {}): MatchSession {
   return {
@@ -224,6 +225,22 @@ describe('callback payloads', () => {
     assert.equal(isCallbackDataSafe(leave), true);
     assert.equal(isCallbackDataSafe(roster), true);
     assert.ok(join.length <= 64);
+  });
+});
+
+describe('group /match routing', () => {
+  it('does not route group /match through the private game text handler', () => {
+    assert.equal(shouldHandlePrivateGameText('group', '/match'), false);
+    assert.equal(shouldHandlePrivateGameText('supergroup', '/match'), false);
+  });
+
+  it('still routes private free text to the game handler', () => {
+    assert.equal(shouldHandlePrivateGameText('private', 'Salom'), true);
+  });
+
+  it('leaves bot commands to dedicated command handlers', () => {
+    assert.equal(shouldHandlePrivateGameText('private', '/match'), false);
+    assert.equal(shouldHandlePrivateGameText('private', '/start'), false);
   });
 });
 

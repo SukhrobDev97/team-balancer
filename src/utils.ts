@@ -69,6 +69,18 @@ export function truncateLabel(text: string, max = 28): string {
   return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
 }
 
+export function isPrivateChatType(type?: string): boolean {
+  return type === 'private';
+}
+
+/** Private free-text game input only; commands and group chats are excluded. */
+export function shouldHandlePrivateGameText(
+  chatType: string | undefined,
+  text: string,
+): boolean {
+  return isPrivateChatType(chatType) && !text.startsWith('/');
+}
+
 export async function safeEditMessage(
   ctx: {
     editMessageText: (text: string, extra?: object) => Promise<unknown>;
