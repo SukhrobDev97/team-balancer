@@ -6,7 +6,7 @@ import {
   isValidTime,
 } from './match.js';
 import { GroupMatchDraft, GroupMatchDraftStep } from './types.js';
-import { parsePositiveInt } from './utils.js';
+import { parsePositiveInt, isGroupChatType } from './utils.js';
 
 /** In-memory group drafts. Lost on bot restart. */
 export const groupMatchDrafts = new Map<string, GroupMatchDraft>();
@@ -132,6 +132,38 @@ export function isDraftReadyToOpen(draft: GroupMatchDraft): boolean {
   );
 }
 
+export function findActiveGroupMatchDraft(
+  chatId: number,
+  userId: number,
+): GroupMatchDraft | undefined {
+  return getGroupMatchDraft(chatId, userId);
+}
+
+export type GroupMatchTextRoute =
+  | 'match_details'
+  | 'custom_capacity'
+  | 'edit_details'
+  | 'ignore';
+
+export function shouldRouteGroupMatchText(
+  chatType: string | undefined,
+  draft: GroupMatchDraft | undefined,
+  userId: number,
+): GroupMatchTextRoute {
+  if (!isGroupChatType(chatType)) return 'ignore';
+  if (!draft || draft.organizerTelegramId !== userId) return 'ignore';
+  switch (draft.step) {
+    case 'MATCH_DETAILS':
+      return 'match_details';
+    case 'WAITING_CUSTOM_CAPACITY':
+      return 'custom_capacity';
+    case 'EDIT_DETAILS':
+      return 'edit_details';
+    default:
+      return 'ignore';
+  }
+}
+
 export function shouldConsumeGroupMatchDraftText(
   draft: GroupMatchDraft | undefined,
   userId: number,
@@ -166,6 +198,7 @@ export function replaceGroupMatchDraft(
   chatId: number,
   organizerTelegramId: number,
   botMessageId: number,
+  messageThreadId?: number,
   now = Date.now(),
 ): GroupMatchDraft {
   if (!isCanonicalDraftMessageId(botMessageId)) {
@@ -175,13 +208,20 @@ export function replaceGroupMatchDraft(
   if (existing) {
     removeGroupMatchDraft(existing);
   }
-  return createGroupMatchDraft(chatId, organizerTelegramId, botMessageId, now);
+  return createGroupMatchDraft(
+    chatId,
+    organizerTelegramId,
+    botMessageId,
+    messageThreadId,
+    now,
+  );
 }
 
 export function createGroupMatchDraft(
   chatId: number,
   organizerTelegramId: number,
   messageId: number,
+  messageThreadId?: number,
   now = Date.now(),
 ): GroupMatchDraft {
   if (!isCanonicalDraftMessageId(messageId)) {
@@ -198,6 +238,7 @@ export function createGroupMatchDraft(
     chatId,
     organizerTelegramId,
     messageId,
+    messageThreadId,
     step: 'MATCH_DETAILS',
     createdAt: now,
   };
@@ -242,6 +283,14 @@ export function parseCustomCapacity(text: string): number | null {
   const n = parsePositiveInt(text.trim());
   if (n === null || !isValidMatchCapacity(n)) return null;
   return n;
+}
+
+export function draftTelegramExtra(
+  draft: GroupMatchDraft,
+  extra?: object,
+): object {
+  if (draft.messageThreadId == null) return extra ?? {};
+  return { ...extra, message_thread_id: draft.messageThreadId };
 }
 
 export function setDraftCapacity(draft: GroupMatchDraft, capacity: number): void {

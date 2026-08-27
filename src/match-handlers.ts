@@ -1,12 +1,13 @@
 import { Telegraf, Context } from 'telegraf';
 import {
   applyParsedDetails,
+  draftTelegramExtra,
+  findActiveGroupMatchDraft,
   formatCapacityStep,
   formatCustomCapacityStep,
   formatEditDetailsPrompt,
   formatMatchDetailsPrompt,
   formatPreviewStep,
-  getGroupMatchDraft,
   getGroupMatchDraftById,
   invalidTimeHelpText,
   isDraftReadyToOpen,
@@ -17,7 +18,7 @@ import {
   removeGroupMatchDraft,
   replaceGroupMatchDraft,
   setDraftCapacity,
-  shouldConsumeGroupMatchDraftText,
+  shouldRouteGroupMatchText,
   updateDraftMessageId,
 } from './group-match-setup.js';
 import {
@@ -42,16 +43,20 @@ import {
   matchCardKeyboard,
   matchRosterKeyboard,
 } from './match-keyboards.js';
+import {
+  getMessageThreadId,
+  isGroupChatType,
+  resolveMessageSenderId,
+} from './utils.js';
 
 type BotContext = Context;
 
 function uid(ctx: BotContext): number | undefined {
-  return ctx.from?.id;
+  return resolveMessageSenderId(ctx);
 }
 
 function isGroupChat(ctx: BotContext): boolean {
-  const type = ctx.chat?.type;
-  return type === 'group' || type === 'supergroup';
+  return isGroupChatType(ctx.chat?.type);
 }
 
 function isPrivateChat(ctx: BotContext): boolean {
@@ -86,13 +91,17 @@ async function editDraftMessage(
       draft.messageId,
       undefined,
       text,
-      extra,
+      draftTelegramExtra(draft, extra),
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes('message is not modified')) return;
     if (isMissingEditTargetError(msg)) {
-      const sent = await ctx.telegram.sendMessage(draft.chatId, text, extra);
+      const sent = await ctx.telegram.sendMessage(
+        draft.chatId,
+        text,
+        draftTelegramExtra(draft, extra),
+      );
       updateDraftMessageId(draft, sent.message_id);
       return;
     }
@@ -110,11 +119,20 @@ function requireDraftOrganizer(
 
 async function beginGroupMatchSetup(ctx: BotContext): Promise<void> {
   const userId = uid(ctx);
-  if (!userId || !ctx.chat) return;
+  if (!userId || !ctx.chat || !ctx.message || !('text' in ctx.message)) return;
 
   const text = formatMatchDetailsPrompt();
-  const sent = await ctx.reply(text);
-  const draft = replaceGroupMatchDraft(ctx.chat.id, userId, sent.message_id);
+  const threadId = getMessageThreadId(ctx.message);
+  const sent = await ctx.reply(
+    text,
+    threadId != null ? { message_thread_id: threadId } : undefined,
+  );
+  const draft = replaceGroupMatchDraft(
+    ctx.chat.id,
+    userId,
+    sent.message_id,
+    threadId,
+  );
   await ctx.telegram.editMessageReplyMarkup(
     ctx.chat.id,
     draft.messageId,
@@ -130,28 +148,27 @@ export async function handleGroupMatchSetupText(
 ): Promise<'handled' | 'ignored'> {
   if (!ctx.chat || !isGroupChat(ctx)) return 'ignored';
 
-  const draft = getGroupMatchDraft(ctx.chat.id, userId);
-  if (!shouldConsumeGroupMatchDraftText(draft, userId)) {
-    return 'ignored';
-  }
+  const draft = findActiveGroupMatchDraft(ctx.chat.id, userId);
+  const route = shouldRouteGroupMatchText(ctx.chat.type, draft, userId);
+  if (route === 'ignore' || !draft) return 'ignored';
 
-  if (draft!.step === 'WAITING_CUSTOM_CAPACITY') {
+  if (route === 'custom_capacity') {
     const capacity = parseCustomCapacity(text);
     if (capacity == null) {
       await editDraftMessage(
         ctx,
-        draft!,
-        formatCustomCapacityStep(draft!) + '\n\n❌ 4 dan 50 gacha son kiriting.',
-        groupSetupCancelKeyboard(draft!.id),
+        draft,
+        formatCustomCapacityStep(draft) + '\n\n❌ 4 dan 50 gacha son kiriting.',
+        groupSetupCancelKeyboard(draft.id),
       );
       return 'handled';
     }
-    setDraftCapacity(draft!, capacity);
+    setDraftCapacity(draft, capacity);
     await editDraftMessage(
       ctx,
-      draft!,
-      formatPreviewStep(draft!),
-      groupPreviewKeyboard(draft!.id),
+      draft,
+      formatPreviewStep(draft),
+      groupPreviewKeyboard(draft.id),
     );
     return 'handled';
   }
@@ -173,27 +190,27 @@ export async function handleGroupMatchSetupText(
           : '❌ Ma\'lumotlarni tekshirib, qayta yuboring.';
     await editDraftMessage(
       ctx,
-      draft!,
+      draft,
       formatMatchDetailsPrompt() + '\n\n' + errorText,
-      groupSetupCancelKeyboard(draft!.id),
+      groupSetupCancelKeyboard(draft.id),
     );
     return 'handled';
   }
 
-  applyParsedDetails(draft!, parsed);
-  if (draft!.step === 'PREVIEW') {
+  applyParsedDetails(draft, parsed);
+  if (draft.step === 'PREVIEW') {
     await editDraftMessage(
       ctx,
-      draft!,
-      formatPreviewStep(draft!),
-      groupPreviewKeyboard(draft!.id),
+      draft,
+      formatPreviewStep(draft),
+      groupPreviewKeyboard(draft.id),
     );
   } else {
     await editDraftMessage(
       ctx,
-      draft!,
-      formatCapacityStep(draft!),
-      groupCapacityKeyboard(draft!.id),
+      draft,
+      formatCapacityStep(draft),
+      groupCapacityKeyboard(draft.id),
     );
   }
   return 'handled';
@@ -302,6 +319,7 @@ export function registerMatchHandlers(bot: Telegraf<BotContext>): void {
       cleanupStaleMatches();
       const match = createMatchSession(draft, draft.messageId);
       matches.set(match.id, match);
+      const editExtra = draftTelegramExtra(draft, matchCardKeyboard(match));
       removeGroupMatchDraft(draft);
 
       await ctx.answerCbQuery('✅ O\'yin ochildi!');
@@ -310,7 +328,7 @@ export function registerMatchHandlers(bot: Telegraf<BotContext>): void {
         match.messageId,
         undefined,
         formatMatchCard(match),
-        matchCardKeyboard(match),
+        editExtra,
       );
     } catch (err) {
       console.error(err);

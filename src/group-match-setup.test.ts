@@ -15,10 +15,13 @@ import {
   replaceGroupMatchDraft,
   setDraftCapacity,
   shouldConsumeGroupMatchDraftText,
+  shouldRouteGroupMatchText,
   updateDraftMessageId,
+  draftTelegramExtra,
   isCanonicalDraftMessageId,
   isMissingEditTargetError,
 } from './group-match-setup.js';
+import { isGroupChatType } from './utils.js';
 import { createMatchSession } from './match.js';
 import { isCallbackDataSafe } from './match.js';
 import { shouldHandlePrivateGameText } from './utils.js';
@@ -156,10 +159,38 @@ describe('group text routing guards', () => {
     assert.equal(shouldConsumeGroupMatchDraftText(undefined, 42), false);
   });
 
-  it('ignores normal group text without active draft', () => {
+  it('routes MATCH_DETAILS for both group and supergroup', () => {
+    const draft = createGroupMatchDraft(-100, 42, 1);
+    assert.equal(shouldRouteGroupMatchText('group', draft, 42), 'match_details');
+    assert.equal(shouldRouteGroupMatchText('supergroup', draft, 42), 'match_details');
+  });
+
+  it('routes custom capacity for both group and supergroup', () => {
+    const draft = createGroupMatchDraft(-100, 42, 1);
+    draft.step = 'WAITING_CUSTOM_CAPACITY';
+    assert.equal(shouldRouteGroupMatchText('group', draft, 42), 'custom_capacity');
+    assert.equal(
+      shouldRouteGroupMatchText('supergroup', draft, 42),
+      'custom_capacity',
+    );
+  });
+
+  it('ignores unrelated user text in group and supergroup', () => {
+    const draft = createGroupMatchDraft(-100, 42, 1);
+    assert.equal(shouldRouteGroupMatchText('group', draft, 99), 'ignore');
+    assert.equal(shouldRouteGroupMatchText('supergroup', draft, 99), 'ignore');
+  });
+
+  it('ignores private chat for group match text routing', () => {
+    const draft = createGroupMatchDraft(-100, 42, 1);
+    assert.equal(shouldRouteGroupMatchText('private', draft, 42), 'ignore');
+  });
+
+  it('ignores normal group/supergroup text without active draft', () => {
     groupMatchDrafts.clear();
     groupMatchDraftsById.clear();
-    assert.equal(shouldConsumeGroupMatchDraftText(undefined, 42), false);
+    assert.equal(shouldRouteGroupMatchText('group', undefined, 42), 'ignore');
+    assert.equal(shouldRouteGroupMatchText('supergroup', undefined, 42), 'ignore');
   });
 
   it('does not route group /match through private menu handler', () => {
@@ -222,5 +253,21 @@ describe('draft message ownership', () => {
       true,
     );
     assert.equal(isMissingEditTargetError('message is not modified'), false);
+  });
+
+  it('preserves forum topic thread id on draft messages', () => {
+    groupMatchDrafts.clear();
+    groupMatchDraftsById.clear();
+    const draft = replaceGroupMatchDraft(-1004354302889, 42, 91, 12345);
+    assert.equal(draft.messageThreadId, 12345);
+    assert.deepEqual(draftTelegramExtra(draft), {
+      message_thread_id: 12345,
+    });
+  });
+
+  it('treats group and supergroup as supported group chats', () => {
+    assert.equal(isGroupChatType('group'), true);
+    assert.equal(isGroupChatType('supergroup'), true);
+    assert.equal(isGroupChatType('private'), false);
   });
 });

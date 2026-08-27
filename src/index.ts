@@ -56,8 +56,10 @@ import { registerMotmHandlers } from './motm-handlers.js';
 import {
   isValidPlayerCount,
   isValidTeamCount,
+  isGroupChatType,
   parsePlayerNames,
   parsePositiveInt,
+  resolveMessageSenderId,
   safeEditMessage,
   shouldHandlePrivateGameText,
 } from './utils.js';
@@ -798,12 +800,12 @@ registerMotmHandlers(bot);
 
 bot.on('text', async (ctx) => {
   try {
-    const userId = uid(ctx);
-    if (!userId) return;
+    const userId = resolveMessageSenderId(ctx);
+    if (!userId || !ctx.message || !('text' in ctx.message)) return;
     const text = ctx.message.text;
     const chatType = ctx.chat?.type;
 
-    if (chatType === 'group' || chatType === 'supergroup') {
+    if (isGroupChatType(chatType)) {
       if (!text.startsWith('/')) {
         await handleGroupMatchSetupText(ctx, userId, text);
       }

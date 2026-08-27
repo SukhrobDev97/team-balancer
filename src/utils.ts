@@ -73,6 +73,23 @@ export function isPrivateChatType(type?: string): boolean {
   return type === 'private';
 }
 
+export function isGroupChatType(type?: string): boolean {
+  return type === 'group' || type === 'supergroup';
+}
+
+export function getMessageThreadId(message?: {
+  message_thread_id?: number;
+}): number | undefined {
+  const id = message?.message_thread_id;
+  return Number.isInteger(id) && id! > 0 ? id : undefined;
+}
+
+export function resolveMessageSenderId(ctx: {
+  from?: { id: number };
+}): number | undefined {
+  return ctx.from?.id;
+}
+
 /** Private free-text game input only; commands and group chats are excluded. */
 export function shouldHandlePrivateGameText(
   chatType: string | undefined,

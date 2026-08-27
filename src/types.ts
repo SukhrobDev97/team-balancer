@@ -162,6 +162,7 @@ export interface GroupMatchDraft {
   chatId: number;
   organizerTelegramId: number;
   messageId: number;
+  messageThreadId?: number;
   step: GroupMatchDraftStep;
   dateLabel?: string;
   time?: string;
