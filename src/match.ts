@@ -1,0 +1,347 @@
+import {
+  INLINE_ROSTER_MAX,
+  MATCH_CLEANUP_AGE_MS,
+  MatchParticipant,
+  MatchSession,
+  MatchSetupDraft,
+  MatchStatus,
+  MAX_MATCH_CAPACITY,
+  MIN_MATCH_CAPACITY,
+  SetupToken,
+} from './types.js';
+
+export const SETUP_TOKEN_TTL_MS = 20 * 60 * 1000;
+export const MAX_DATE_LABEL_LENGTH = 80;
+export const MAX_LOCATION_LENGTH = 120;
+
+export const matches = new Map<string, MatchSession>();
+export const setupTokens = new Map<string, SetupToken>();
+export const matchDrafts = new Map<number, MatchSetupDraft>();
+
+const ID_CHARS = 'abcdefghijklmnopqrstuvwxyz0123456789';
+
+export function generateShortId(length = 8): string {
+  let id = '';
+  for (let i = 0; i < length; i++) {
+    id += ID_CHARS[Math.floor(Math.random() * ID_CHARS.length)]!;
+  }
+  return id;
+}
+
+export function generateMatchId(): string {
+  let id: string;
+  do {
+    id = `m${generateShortId(10)}`;
+  } while (matches.has(id));
+  return id;
+}
+
+export function matchCallbackData(prefix: string, matchId: string): string {
+  return `${prefix}:${matchId}`;
+}
+
+export function isCallbackDataSafe(data: string): boolean {
+  return data.length > 0 && data.length <= 64;
+}
+
+export function cleanupExpiredSetupTokens(now = Date.now()): void {
+  for (const [token, entry] of setupTokens) {
+    if (now - entry.createdAt > SETUP_TOKEN_TTL_MS) {
+      setupTokens.delete(token);
+    }
+  }
+}
+
+export function cleanupStaleMatches(now = Date.now()): void {
+  for (const [id, match] of matches) {
+    if (now - match.createdAt > MATCH_CLEANUP_AGE_MS) {
+      matches.delete(id);
+    }
+  }
+}
+
+export function createSetupToken(
+  chatId: number,
+  organizerTelegramId: number,
+  groupTitle?: string,
+  now = Date.now(),
+): SetupToken {
+  cleanupExpiredSetupTokens(now);
+  let token: string;
+  do {
+    token = generateShortId(8);
+  } while (setupTokens.has(token));
+
+  const entry: SetupToken = {
+    token,
+    chatId,
+    groupTitle,
+    organizerTelegramId,
+    createdAt: now,
+  };
+  setupTokens.set(token, entry);
+  return entry;
+}
+
+export type SetupTokenValidation =
+  | { ok: true; entry: SetupToken }
+  | { ok: false; reason: 'not_found' | 'expired' | 'wrong_user' };
+
+export function validateSetupToken(
+  token: string,
+  userId: number,
+  now = Date.now(),
+): SetupTokenValidation {
+  const entry = setupTokens.get(token);
+  if (!entry) {
+    cleanupExpiredSetupTokens(now);
+    return { ok: false, reason: 'not_found' };
+  }
+  if (now - entry.createdAt > SETUP_TOKEN_TTL_MS) {
+    setupTokens.delete(token);
+    cleanupExpiredSetupTokens(now);
+    return { ok: false, reason: 'expired' };
+  }
+  cleanupExpiredSetupTokens(now);
+  if (entry.organizerTelegramId !== userId) {
+    return { ok: false, reason: 'wrong_user' };
+  }
+  return { ok: true, entry };
+}
+
+export function isValidTime(text: string): boolean {
+  return /^([01]?\d|2[0-3]):[0-5]\d$/.test(text.trim());
+}
+
+export function isValidMatchCapacity(n: number): boolean {
+  return Number.isInteger(n) && n >= MIN_MATCH_CAPACITY && n <= MAX_MATCH_CAPACITY;
+}
+
+export function isValidDateLabel(text: string): boolean {
+  const trimmed = text.trim();
+  return trimmed.length > 0 && trimmed.length <= MAX_DATE_LABEL_LENGTH;
+}
+
+export function isValidLocation(text: string): boolean {
+  const trimmed = text.trim();
+  return trimmed.length > 0 && trimmed.length <= MAX_LOCATION_LENGTH;
+}
+
+export function participantDisplayName(
+  firstName?: string,
+  lastName?: string,
+  username?: string,
+): string {
+  const first = (firstName ?? '').trim();
+  const last = (lastName ?? '').trim();
+  const combined = [first, last].filter(Boolean).join(' ');
+  if (combined) return combined;
+  if (username) return `@${username.replace(/^@/, '')}`;
+  return "O'yinchi";
+}
+
+export function isOrganizer(match: MatchSession, telegramId: number): boolean {
+  return match.organizerTelegramId === telegramId;
+}
+
+export function syncMatchStatus(match: MatchSession): void {
+  if (match.status === 'CLOSED' || match.status === 'CANCELLED') return;
+  match.status =
+    match.participants.length >= match.capacity ? 'FULL' : 'OPEN';
+}
+
+export type JoinResult = 'joined' | 'already' | 'full' | 'closed' | 'locked';
+
+export function tryJoinMatch(
+  match: MatchSession,
+  participant: Omit<MatchParticipant, 'joinedAt'>,
+  now = Date.now(),
+): JoinResult {
+  if (match.teamPreparation?.locked) {
+    return 'locked';
+  }
+  if (match.status === 'CLOSED' || match.status === 'CANCELLED') {
+    return 'closed';
+  }
+  if (match.participants.some((p) => p.telegramId === participant.telegramId)) {
+    return 'already';
+  }
+  if (match.participants.length >= match.capacity) {
+    return 'full';
+  }
+
+  match.participants.push({ ...participant, joinedAt: now });
+  syncMatchStatus(match);
+  return 'joined';
+}
+
+export type LeaveResult = 'left' | 'not_joined' | 'locked';
+
+export function tryLeaveMatch(
+  match: MatchSession,
+  telegramId: number,
+): LeaveResult {
+  if (match.teamPreparation?.locked) {
+    return 'locked';
+  }
+  const idx = match.participants.findIndex((p) => p.telegramId === telegramId);
+  if (idx < 0) return 'not_joined';
+  match.participants.splice(idx, 1);
+  syncMatchStatus(match);
+  return 'left';
+}
+
+function participantLines(match: MatchSession): string[] {
+  return match.participants.map(
+    (p, i) => `${i + 1}. ${p.displayName}`,
+  );
+}
+
+export function formatMatchCard(match: MatchSession): string {
+  const header = [`⚽ ${match.dateLabel} — ${match.time}`, `📍 ${match.location}`, ''];
+  const countLine = `👥 ${match.participants.length} / ${match.capacity}`;
+
+  if (match.status === 'FULL') {
+    const lines = [...header, countLine, ''];
+    if (match.participants.length <= INLINE_ROSTER_MAX) {
+      lines.push(...participantLines(match), '', '✅ TARKIB TO\'LDI');
+    } else {
+      lines.push('✅ TARKIB TO\'LDI');
+    }
+    return lines.join('\n');
+  }
+
+  if (match.status === 'CLOSED') {
+    return [...header, countLine, '', '🔒 RO\'YXAT YOPILDI'].join('\n');
+  }
+
+  if (match.status === 'CANCELLED') {
+    return [
+      '❌ O\'YIN BEKOR QILINDI',
+      '',
+      `⚽ ${match.dateLabel} — ${match.time}`,
+      `📍 ${match.location}`,
+    ].join('\n');
+  }
+
+  if (match.participants.length === 0) {
+    return [...header, countLine, '', 'Hali hech kim yozilmadi.'].join('\n');
+  }
+
+  const lines = [...header, countLine, ''];
+  if (match.participants.length <= INLINE_ROSTER_MAX) {
+    lines.push(...participantLines(match));
+  }
+  return lines.join('\n');
+}
+
+export function formatRosterMessage(match: MatchSession): string {
+  const lines = [
+    `⚽ ${match.dateLabel} — ${match.time}`,
+    `📍 ${match.location}`,
+    '',
+    `👥 Ro'yxat — ${match.participants.length} / ${match.capacity}`,
+    '',
+  ];
+
+  if (match.participants.length === 0) {
+    lines.push('Hali hech kim yozilmadi.');
+  } else {
+    lines.push(...participantLines(match));
+  }
+
+  if (match.status === 'FULL') {
+    lines.push('', '✅ TARKIB TO\'LDI');
+  }
+
+  return lines.join('\n');
+}
+
+export function formatSetupPreview(draft: MatchSetupDraft): string {
+  const lines = [
+    '⚽ Yangi o\'yin',
+    '',
+    `📅 ${draft.dateLabel ?? '—'}`,
+    `🕘 ${draft.time ?? '—'}`,
+    `📍 ${draft.location ?? '—'}`,
+    `👥 ${draft.capacity ?? '—'} o'yinchi`,
+  ];
+  if (draft.groupTitle) {
+    lines.push('', `👥 Group: ${draft.groupTitle}`);
+  }
+  return lines.join('\n');
+}
+
+export function isSetupComplete(draft: MatchSetupDraft): boolean {
+  return (
+    draft.dateLabel != null &&
+    draft.time != null &&
+    draft.location != null &&
+    draft.capacity != null &&
+    isValidMatchCapacity(draft.capacity)
+  );
+}
+
+export function createMatchSession(
+  draft: MatchSetupDraft,
+  messageId: number,
+  now = Date.now(),
+): MatchSession {
+  return {
+    id: generateMatchId(),
+    chatId: draft.chatId,
+    messageId,
+    organizerTelegramId: draft.userId,
+    dateLabel: draft.dateLabel!,
+    time: draft.time!,
+    location: draft.location!,
+    capacity: draft.capacity!,
+    participants: [],
+    status: 'OPEN' as MatchStatus,
+    createdAt: now,
+  };
+}
+
+export function getMatch(matchId: string): MatchSession | undefined {
+  return matches.get(matchId);
+}
+
+export function getDraft(userId: number): MatchSetupDraft | undefined {
+  return matchDrafts.get(userId);
+}
+
+export function clearDraft(userId: number): void {
+  matchDrafts.delete(userId);
+}
+
+export function closeMatchRoster(
+  match: MatchSession,
+  organizerId: number,
+): boolean {
+  if (!isOrganizer(match, organizerId)) return false;
+  if (match.status !== 'OPEN') return false;
+  match.status = 'CLOSED';
+  return true;
+}
+
+export function canPrepareTeams(match: MatchSession): boolean {
+  return match.status === 'FULL' || match.status === 'CLOSED';
+}
+
+export function ensureDraftFromToken(
+  entry: SetupToken,
+  userId: number,
+): MatchSetupDraft {
+  const existing = matchDrafts.get(userId);
+  if (existing && existing.chatId === entry.chatId) {
+    return existing;
+  }
+  const draft: MatchSetupDraft = {
+    userId,
+    chatId: entry.chatId,
+    groupTitle: entry.groupTitle,
+    step: 'DATE',
+  };
+  matchDrafts.set(userId, draft);
+  return draft;
+}

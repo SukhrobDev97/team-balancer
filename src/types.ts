@@ -67,3 +67,123 @@ export const MAX_PLAYERS = 50;
 export const MIN_TEAMS = 2;
 export const MAX_TEAMS = 5;
 export const MIN_PER_TEAM = 2;
+
+export type MatchStatus = 'OPEN' | 'FULL' | 'CLOSED' | 'CANCELLED';
+
+export interface MatchParticipant {
+  telegramId: number;
+  displayName: string;
+  username?: string;
+  joinedAt: number;
+}
+
+export type MotmStatus = 'NOT_STARTED' | 'OPEN' | 'FINISHED';
+
+export interface MotmPodiumEntry {
+  participantId: string;
+  displayName: string;
+  votes: number;
+  place: number;
+}
+
+export interface MotmState {
+  status: 'OPEN' | 'FINISHED';
+  startedByTelegramId: number;
+  startedAt: number;
+  votes: Record<string, string>;
+  messageId?: number;
+  keyboardPage?: number;
+  finishedAt?: number;
+  winnerParticipantIds?: string[];
+  finalJoke?: string;
+  podium?: MotmPodiumEntry[];
+}
+
+export interface MatchSession {
+  id: string;
+  organizerTelegramId: number;
+  chatId: number;
+  messageId: number;
+  dateLabel: string;
+  time: string;
+  location: string;
+  capacity: number;
+  participants: MatchParticipant[];
+  status: MatchStatus;
+  createdAt: number;
+  teamPreparation?: TeamPreparation;
+  teamsMessageId?: number;
+  teamsPublishedAt?: number;
+  motm?: MotmState;
+}
+
+export interface TeamPreparation {
+  locked: boolean;
+  ratings: Record<string, PlayerTier>;
+  teamCount?: number;
+  generatedTeams?: Team[];
+}
+
+export interface TeamSetupToken {
+  token: string;
+  matchId: string;
+  organizerTelegramId: number;
+  createdAt: number;
+}
+
+export type OrganizerPrepView =
+  | 'RATING'
+  | 'SUMMARY'
+  | 'REVIEW'
+  | 'EDIT_LIST'
+  | 'EDIT_TIER'
+  | 'TEAM_COUNT'
+  | 'PREVIEW';
+
+export interface OrganizerPrepSession {
+  matchId: string;
+  userId: number;
+  privateMessageId: number;
+  view: OrganizerPrepView;
+  editingTelegramId?: number;
+}
+
+export interface SetupToken {
+  token: string;
+  chatId: number;
+  groupTitle?: string;
+  organizerTelegramId: number;
+  createdAt: number;
+}
+
+export type MatchSetupStep =
+  | 'DATE'
+  | 'TIME'
+  | 'LOCATION'
+  | 'CAPACITY'
+  | 'CUSTOM_CAPACITY'
+  | 'PREVIEW'
+  | 'EDIT_MENU'
+  | 'EDIT_DATE'
+  | 'EDIT_TIME'
+  | 'EDIT_LOCATION'
+  | 'EDIT_CAPACITY'
+  | 'EDIT_CUSTOM_CAPACITY';
+
+export interface MatchSetupDraft {
+  userId: number;
+  chatId: number;
+  groupTitle?: string;
+  step: MatchSetupStep;
+  dateLabel?: string;
+  time?: string;
+  location?: string;
+  capacity?: number;
+  published?: boolean;
+  publishedMatchId?: string;
+}
+
+export const MIN_MATCH_CAPACITY = 4;
+export const MAX_MATCH_CAPACITY = 50;
+export const MATCH_CLEANUP_AGE_MS = 48 * 60 * 60 * 1000;
+export const INLINE_ROSTER_MAX = 12;

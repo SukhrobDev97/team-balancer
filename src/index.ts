@@ -44,10 +44,24 @@ import {
   PlayerTier,
 } from './types.js';
 import {
+  handleMatchSetupText,
+  handleMatchStartPayload,
+  registerMatchHandlers,
+  setBotUsername,
+} from './match-handlers.js';
+import {
+  handleTeamPrepStartPayload,
+  registerTeamPrepHandlers,
+  setTeamPrepBotUsername,
+} from './team-prep-handlers.js';
+import { registerMotmHandlers } from './motm-handlers.js';
+import { clearDraft, getDraft } from './match.js';
+import {
   isValidPlayerCount,
   isValidTeamCount,
   parsePlayerNames,
   parsePositiveInt,
+  safeEditMessage,
 } from './utils.js';
 
 config();
@@ -110,13 +124,7 @@ async function safeEdit(
   text: string,
   extra?: object,
 ) {
-  try {
-    await ctx.editMessageText(text, extra);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes('message is not modified')) return;
-    await ctx.reply(text, extra);
-  }
+  await safeEditMessage(ctx, text, extra);
 }
 
 function dash(session: GameSession, prefix?: string) {
@@ -263,7 +271,23 @@ bot.catch(async (err, ctx) => {
 bot.start(async (ctx) => {
   const userId = uid(ctx);
   if (!userId) return;
+
+  const payload = ctx.startPayload;
+  if (payload?.startsWith('match_')) {
+    const token = payload.slice('match_'.length);
+    const lang = sessionOf(userId)?.language ?? 'uz';
+    await handleMatchStartPayload(ctx, userId, token, lang);
+    return;
+  }
+
+  if (payload?.startsWith('teams_')) {
+    const token = payload.slice('teams_'.length);
+    await handleTeamPrepStartPayload(ctx, userId, token);
+    return;
+  }
+
   clear(userId);
+  clearDraft(userId);
   await showLanguagePicker(ctx);
 });
 
@@ -273,6 +297,7 @@ bot.command('cancel', async (ctx) => {
   const session = sessionOf(userId);
   const lang = session?.language;
   clear(userId);
+  clearDraft(userId);
   await ctx.reply(
     lang ? t(lang, 'cancelMessage') : t('uz', 'cancelMultilingual'),
     languageKeyboard(),
@@ -782,8 +807,14 @@ bot.on('text', async (ctx) => {
   try {
     const userId = uid(ctx);
     if (!userId) return;
-    const session = sessionOf(userId);
     const text = ctx.message.text;
+
+    if (ctx.chat?.type === 'private' && getDraft(userId)) {
+      const handled = await handleMatchSetupText(ctx, userId, text);
+      if (handled) return;
+    }
+
+    const session = sessionOf(userId);
 
     if (!session) {
       await showLanguagePicker(ctx);
@@ -872,7 +903,15 @@ bot.on('text', async (ctx) => {
   }
 });
 
-bot.launch().then(() => {
+registerMatchHandlers(bot);
+registerTeamPrepHandlers(bot);
+registerMotmHandlers(bot);
+
+bot.launch().then(async () => {
+  const me = await bot.telegram.getMe();
+  const username = me.username ?? '';
+  setBotUsername(username);
+  setTeamPrepBotUsername(username);
   console.log('Bot started');
 });
 

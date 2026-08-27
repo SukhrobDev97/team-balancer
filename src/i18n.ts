@@ -32,6 +32,7 @@ type StaticMessageKey = {
   langEn: never;
   startText: never;
   createTeams: never;
+  createMatch: never;
   changeLanguage: never;
   newGame: never;
   playerCount: never;
@@ -96,6 +97,7 @@ const uzMessages: LocaleMessages = {
     'qolganini bot hal qiladi 😎',
   ].join('\n'),
   createTeams: '⚽ Jamoa tuzish',
+  createMatch: '📅 O\'yin yaratish',
   changeLanguage: '🌐 Til',
   newGame: "🆕 Yangi o'yin",
   playerCount: "👥 Nechta o'yinchi bor?",
@@ -183,6 +185,7 @@ const messages: Record<Language, LocaleMessages> = {
       'остальное бот сделает сам 😎',
     ].join('\n'),
     createTeams: '⚽ Создать команды',
+    createMatch: '📅 Создать игру',
     changeLanguage: '🌐 Язык',
     newGame: '🆕 Новая игра',
     playerCount: '👥 Сколько игроков?',
@@ -266,6 +269,7 @@ const messages: Record<Language, LocaleMessages> = {
       'the bot will handle the rest 😎',
     ].join('\n'),
     createTeams: '⚽ Create teams',
+    createMatch: '📅 Create match',
     changeLanguage: '🌐 Language',
     newGame: '🆕 New game',
     playerCount: '👥 How many players?',
@@ -362,6 +366,7 @@ const STATIC_KEYS: MessageKey[] = [
   'langEn',
   'startText',
   'createTeams',
+  'createMatch',
   'changeLanguage',
   'newGame',
   'playerCount',

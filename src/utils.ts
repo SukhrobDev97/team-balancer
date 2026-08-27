@@ -68,3 +68,20 @@ export function canAddNames(entered: number, total: number, incoming: number): b
 export function truncateLabel(text: string, max = 28): string {
   return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
 }
+
+export async function safeEditMessage(
+  ctx: {
+    editMessageText: (text: string, extra?: object) => Promise<unknown>;
+    reply: (text: string, extra?: object) => Promise<unknown>;
+  },
+  text: string,
+  extra?: object,
+): Promise<void> {
+  try {
+    await ctx.editMessageText(text, extra);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('message is not modified')) return;
+    await ctx.reply(text, extra);
+  }
+}

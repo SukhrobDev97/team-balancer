@@ -16,6 +16,7 @@ export function languageKeyboard() {
 export function startKeyboard(lang: Language) {
   return Markup.inlineKeyboard([
     [Markup.button.callback(t(lang, 'createTeams'), 'new_game')],
+    [Markup.button.callback(t(lang, 'createMatch'), 'create_match')],
     [Markup.button.callback(t(lang, 'changeLanguage'), 'change_lang')],
   ]);
 }
