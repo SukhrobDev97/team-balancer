@@ -22,16 +22,17 @@ import { MAX_PLAYERS, MAX_TEAMS, MIN_PER_TEAM, MIN_PLAYERS, MIN_TEAMS } from './
 import { balanceTeams } from './team-balancer.js';
 
 describe('player count validation', () => {
-  it('accepts 4–50', () => {
+  it('accepts 1–50', () => {
+    assert.equal(isValidPlayerCount(1, MIN_PLAYERS, MAX_PLAYERS), true);
     assert.equal(isValidPlayerCount(4, MIN_PLAYERS, MAX_PLAYERS), true);
     assert.equal(isValidPlayerCount(50, MIN_PLAYERS, MAX_PLAYERS), true);
-    assert.equal(isValidPlayerCount(3, MIN_PLAYERS, MAX_PLAYERS), false);
+    assert.equal(isValidPlayerCount(0, MIN_PLAYERS, MAX_PLAYERS), false);
     assert.equal(isValidPlayerCount(51, MIN_PLAYERS, MAX_PLAYERS), false);
   });
 
   it('custom counts use the same rule', () => {
     assert.equal(isValidPlayerCount(17, MIN_PLAYERS, MAX_PLAYERS), true);
-    assert.equal(isValidPlayerCount(1, MIN_PLAYERS, MAX_PLAYERS), false);
+    assert.equal(isValidPlayerCount(1, MIN_PLAYERS, MAX_PLAYERS), true);
   });
 });
 

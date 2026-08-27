@@ -128,9 +128,10 @@ describe('group match draft lifecycle', () => {
     assert.equal(isDraftReadyToOpen(draft), true);
   });
 
-  it('validates custom capacity 4–50', () => {
+  it('validates custom capacity 1–50', () => {
+    assert.equal(parseCustomCapacity('1'), 1);
     assert.equal(parseCustomCapacity('16'), 16);
-    assert.equal(parseCustomCapacity('3'), null);
+    assert.equal(parseCustomCapacity('0'), null);
     assert.equal(parseCustomCapacity('51'), null);
     assert.equal(parseCustomCapacity('abc'), null);
   });

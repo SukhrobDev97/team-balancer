@@ -39,6 +39,7 @@ import {
   tryJoinMatch,
   tryLeaveMatch,
 } from './match.js';
+import { MAX_MATCH_CAPACITY, MIN_MATCH_CAPACITY } from './types.js';
 import {
   matchCardKeyboard,
   matchRosterKeyboard,
@@ -61,6 +62,10 @@ function isGroupChat(ctx: BotContext): boolean {
 
 function isPrivateChat(ctx: BotContext): boolean {
   return ctx.chat?.type === 'private';
+}
+
+function capacityRangeError(): string {
+  return `❌ ${MIN_MATCH_CAPACITY} dan ${MAX_MATCH_CAPACITY} gacha son kiriting.`;
 }
 
 function createMatchInstructionsText(): string {
@@ -158,7 +163,7 @@ export async function handleGroupMatchSetupText(
       await editDraftMessage(
         ctx,
         draft,
-        formatCustomCapacityStep(draft) + '\n\n❌ 4 dan 50 gacha son kiriting.',
+        formatCustomCapacityStep(draft) + '\n\n' + capacityRangeError(),
         groupSetupCancelKeyboard(draft.id),
       );
       return 'handled';
@@ -256,7 +261,7 @@ export function registerMatchHandlers(bot: Telegraf<BotContext>): void {
         return;
       }
       if (!isValidMatchCapacity(capacity)) {
-        await ctx.answerCbQuery('❌ 4 dan 50 gacha son kiriting.');
+        await ctx.answerCbQuery(capacityRangeError());
         return;
       }
 

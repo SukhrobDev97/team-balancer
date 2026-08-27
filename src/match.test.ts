@@ -37,10 +37,11 @@ function emptyMatch(overrides: Partial<MatchSession> = {}): MatchSession {
 }
 
 describe('match setup validation', () => {
-  it('validates capacity 4–50', () => {
+  it('validates capacity 1–50', () => {
+    assert.equal(isValidMatchCapacity(1), true);
     assert.equal(isValidMatchCapacity(4), true);
     assert.equal(isValidMatchCapacity(50), true);
-    assert.equal(isValidMatchCapacity(3), false);
+    assert.equal(isValidMatchCapacity(0), false);
     assert.equal(isValidMatchCapacity(51), false);
   });
 

@@ -62,7 +62,7 @@ export const TIER_STARS: Record<PlayerTier, string> = {
   E: '⭐',
 };
 
-export const MIN_PLAYERS = 4;
+export const MIN_PLAYERS = 1;
 export const MAX_PLAYERS = 50;
 export const MIN_TEAMS = 2;
 export const MAX_TEAMS = 5;
@@ -171,7 +171,7 @@ export interface GroupMatchDraft {
   createdAt: number;
 }
 
-export const MIN_MATCH_CAPACITY = 4;
+export const MIN_MATCH_CAPACITY = 1;
 export const MAX_MATCH_CAPACITY = 50;
 export const MATCH_CLEANUP_AGE_MS = 48 * 60 * 60 * 1000;
 export const INLINE_ROSTER_MAX = 12;
