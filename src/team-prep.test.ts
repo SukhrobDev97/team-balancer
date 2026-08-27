@@ -69,12 +69,17 @@ describe('team preparation eligibility', () => {
     });
   });
 
-  it('rejects fewer than 4 participants', () => {
-    const match = matchWithParticipants(3, { status: 'FULL' });
+  it('rejects fewer than 3 participants', () => {
+    const match = matchWithParticipants(2, { status: 'FULL' });
     assert.deepEqual(canStartTeamPreparation(match, 42), {
       ok: false,
       reason: 'too_few',
     });
+  });
+
+  it('allows 3 participants', () => {
+    const match = matchWithParticipants(3, { status: 'FULL' });
+    assert.deepEqual(canStartTeamPreparation(match, 42), { ok: true });
   });
 
   it('rejects non-organizer', () => {
@@ -143,6 +148,11 @@ describe('team count validation', () => {
   it('calculates valid team counts for 14 players', () => {
     const match = matchWithParticipants(14);
     assert.deepEqual(validMatchTeamCounts(match), [2, 3, 4, 5]);
+  });
+
+  it('calculates valid team counts for 3 players', () => {
+    const match = matchWithParticipants(3);
+    assert.deepEqual(validMatchTeamCounts(match), [2, 3]);
   });
 
   it('rejects 3 teams for 4 players', () => {

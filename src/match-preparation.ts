@@ -17,8 +17,12 @@ import { generateShortId, isOrganizer } from './match.js';
 import { validTeamCounts } from './utils.js';
 
 export const TEAM_SETUP_TOKEN_TTL_MS = 20 * 60 * 1000;
-export const MIN_TEAM_PREP_PLAYERS = 4;
+export const MIN_TEAM_PREP_PLAYERS = 3;
 export const TEAM_EMOJIS = ['🔵', '🔴', '🟢', '🟡', '🟣'];
+
+function matchMinPerTeam(playerCount: number): number {
+  return Math.min(MIN_PER_TEAM, Math.max(1, Math.floor(playerCount / MIN_TEAMS)));
+}
 
 export const teamSetupTokens = new Map<string, TeamSetupToken>();
 
@@ -196,7 +200,7 @@ export function validMatchTeamCounts(match: MatchSession): number[] {
     match.participants.length,
     MIN_TEAMS,
     MAX_TEAMS,
-    MIN_PER_TEAM,
+    matchMinPerTeam(match.participants.length),
   );
 }
 

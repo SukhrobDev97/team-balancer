@@ -206,7 +206,7 @@ export async function handleTeamPrepStartPayload(
   if (!prepCheck.ok) {
     const msg =
       prepCheck.reason === 'too_few'
-        ? '❌ Jamoa tuzish uchun kamida 4 ta o\'yinchi kerak.'
+        ? '❌ Jamoa tuzish uchun kamida 3 ta o\'yinchi kerak.'
         : prepCheck.reason === 'wrong_status'
           ? '❌ Avval ro\'yxatni yoping yoki tarkib to\'lsin.'
           : '❌ Bu o\'yin uchun jamoa tayyorlab bo\'lmaydi.';
@@ -280,7 +280,7 @@ export function registerTeamPrepHandlers(bot: Telegraf<BotContext>): void {
       if (!prepCheck.ok) {
         const msg =
           prepCheck.reason === 'too_few'
-            ? '❌ Jamoa tuzish uchun kamida 4 ta o\'yinchi kerak.'
+            ? '❌ Jamoa tuzish uchun kamida 3 ta o\'yinchi kerak.'
             : '❌ Avval ro\'yxatni yoping yoki tarkib to\'lsin.';
         await ctx.answerCbQuery(msg, { show_alert: true });
         return;
