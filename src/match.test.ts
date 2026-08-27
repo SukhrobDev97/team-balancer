@@ -1,11 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  cleanupExpiredSetupTokens,
   cleanupStaleMatches,
   createMatchSession,
-  createSetupToken,
-  ensureDraftFromToken,
   formatMatchCard,
   generateMatchId,
   isCallbackDataSafe,
@@ -15,15 +12,11 @@ import {
   isValidTime,
   matchCallbackData,
   matches,
-  matchDrafts,
   participantDisplayName,
-  setupTokens,
-  SETUP_TOKEN_TTL_MS,
   tryJoinMatch,
   tryLeaveMatch,
-  validateSetupToken,
 } from './match.js';
-import { MatchSession, MatchSetupDraft } from './types.js';
+import { GroupMatchDraft, MatchSession } from './types.js';
 import { shouldHandlePrivateGameText } from './utils.js';
 
 function emptyMatch(overrides: Partial<MatchSession> = {}): MatchSession {
@@ -160,58 +153,22 @@ describe('attendance logic', () => {
   });
 
   it('preserves organizer id on publish', () => {
-    const draft: MatchSetupDraft = {
-      userId: 777,
+    const draft: GroupMatchDraft = {
+      id: 'dtest123',
       chatId: -100,
+      organizerTelegramId: 777,
+      messageId: 99,
       step: 'PREVIEW',
       dateLabel: 'Juma',
       time: '21:00',
       location: 'Arena',
       capacity: 10,
+      createdAt: Date.now(),
     };
     const match = createMatchSession(draft, 99);
     assert.equal(match.organizerTelegramId, 777);
     assert.equal(isOrganizer(match, 777), true);
     assert.equal(isOrganizer(match, 888), false);
-  });
-});
-
-describe('setup tokens', () => {
-  it('allows only creator to use token', () => {
-    const entry = createSetupToken(-100, 42, 'Football Boys', 1_000);
-    assert.deepEqual(validateSetupToken(entry.token, 42, 1_000), {
-      ok: true,
-      entry,
-    });
-    assert.deepEqual(validateSetupToken(entry.token, 99, 1_000), {
-      ok: false,
-      reason: 'wrong_user',
-    });
-  });
-
-  it('rejects expired token', () => {
-    const entry = createSetupToken(-100, 42, undefined, 0);
-    const expiredAt = entry.createdAt + SETUP_TOKEN_TTL_MS + 1;
-    assert.deepEqual(validateSetupToken(entry.token, 42, expiredAt), {
-      ok: false,
-      reason: 'expired',
-    });
-  });
-
-  it('creates draft from valid token', () => {
-    matchDrafts.clear();
-    const entry = createSetupToken(-200, 55, 'Group A');
-    const draft = ensureDraftFromToken(entry, 55);
-    assert.equal(draft.chatId, -200);
-    assert.equal(draft.groupTitle, 'Group A');
-    assert.equal(draft.step, 'DATE');
-  });
-
-  it('cleans expired tokens opportunistically', () => {
-    setupTokens.clear();
-    createSetupToken(-1, 1, undefined, 0);
-    cleanupExpiredSetupTokens(SETUP_TOKEN_TTL_MS + 1);
-    assert.equal(setupTokens.size, 0);
   });
 });
 

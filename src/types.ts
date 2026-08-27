@@ -148,39 +148,26 @@ export interface OrganizerPrepSession {
   editingTelegramId?: number;
 }
 
-export interface SetupToken {
-  token: string;
-  chatId: number;
-  groupTitle?: string;
-  organizerTelegramId: number;
-  createdAt: number;
-}
-
-export type MatchSetupStep =
-  | 'DATE'
-  | 'TIME'
-  | 'LOCATION'
+export type GroupMatchDraftStep =
+  | 'MATCH_DETAILS'
   | 'CAPACITY'
-  | 'CUSTOM_CAPACITY'
+  | 'WAITING_CUSTOM_CAPACITY'
   | 'PREVIEW'
   | 'EDIT_MENU'
-  | 'EDIT_DATE'
-  | 'EDIT_TIME'
-  | 'EDIT_LOCATION'
-  | 'EDIT_CAPACITY'
-  | 'EDIT_CUSTOM_CAPACITY';
+  | 'EDIT_DETAILS'
+  | 'EDIT_CAPACITY';
 
-export interface MatchSetupDraft {
-  userId: number;
+export interface GroupMatchDraft {
+  id: string;
   chatId: number;
-  groupTitle?: string;
-  step: MatchSetupStep;
+  organizerTelegramId: number;
+  messageId: number;
+  step: GroupMatchDraftStep;
   dateLabel?: string;
   time?: string;
   location?: string;
   capacity?: number;
-  published?: boolean;
-  publishedMatchId?: string;
+  createdAt: number;
 }
 
 export const MIN_MATCH_CAPACITY = 4;

@@ -2,46 +2,6 @@ import { Markup } from 'telegraf';
 import { MatchSession } from './types.js';
 import { canPrepareTeams, matchCallbackData } from './match.js';
 
-export function groupMatchLinkKeyboard(deepLink: string) {
-  return Markup.inlineKeyboard([
-    [Markup.button.url('⚙️ O\'yinni sozlash', deepLink)],
-  ]);
-}
-
-export function matchCapacityKeyboard() {
-  return Markup.inlineKeyboard([
-    [
-      Markup.button.callback('10', 'ms_cap:10'),
-      Markup.button.callback('12', 'ms_cap:12'),
-      Markup.button.callback('14', 'ms_cap:14'),
-    ],
-    [
-      Markup.button.callback('16', 'ms_cap:16'),
-      Markup.button.callback('18', 'ms_cap:18'),
-      Markup.button.callback('20', 'ms_cap:20'),
-    ],
-    [Markup.button.callback('✏️ Boshqa', 'ms_cap_custom')],
-  ]);
-}
-
-export function matchPreviewKeyboard() {
-  return Markup.inlineKeyboard([
-    [Markup.button.callback('📢 Groupga chiqarish', 'ms_publish')],
-    [Markup.button.callback('✏️ O\'zgartirish', 'ms_edit')],
-    [Markup.button.callback('❌ Bekor qilish', 'ms_cancel')],
-  ]);
-}
-
-export function matchEditMenuKeyboard() {
-  return Markup.inlineKeyboard([
-    [Markup.button.callback('📅 Kun', 'ms_edit_date')],
-    [Markup.button.callback('🕘 Vaqt', 'ms_edit_time')],
-    [Markup.button.callback('📍 Joy', 'ms_edit_location')],
-    [Markup.button.callback('👥 O\'yinchi soni', 'ms_edit_capacity')],
-    [Markup.button.callback('⬅️ Orqaga', 'ms_back_preview')],
-  ]);
-}
-
 export function matchCardKeyboard(match: MatchSession) {
   const rows: ReturnType<typeof Markup.button.callback>[][] = [];
 

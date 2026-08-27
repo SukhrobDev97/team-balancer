@@ -1,22 +1,18 @@
 import {
   INLINE_ROSTER_MAX,
   MATCH_CLEANUP_AGE_MS,
+  GroupMatchDraft,
   MatchParticipant,
   MatchSession,
-  MatchSetupDraft,
   MatchStatus,
   MAX_MATCH_CAPACITY,
   MIN_MATCH_CAPACITY,
-  SetupToken,
 } from './types.js';
 
-export const SETUP_TOKEN_TTL_MS = 20 * 60 * 1000;
 export const MAX_DATE_LABEL_LENGTH = 80;
 export const MAX_LOCATION_LENGTH = 120;
 
 export const matches = new Map<string, MatchSession>();
-export const setupTokens = new Map<string, SetupToken>();
-export const matchDrafts = new Map<number, MatchSetupDraft>();
 
 const ID_CHARS = 'abcdefghijklmnopqrstuvwxyz0123456789';
 
@@ -44,69 +40,12 @@ export function isCallbackDataSafe(data: string): boolean {
   return data.length > 0 && data.length <= 64;
 }
 
-export function cleanupExpiredSetupTokens(now = Date.now()): void {
-  for (const [token, entry] of setupTokens) {
-    if (now - entry.createdAt > SETUP_TOKEN_TTL_MS) {
-      setupTokens.delete(token);
-    }
-  }
-}
-
 export function cleanupStaleMatches(now = Date.now()): void {
   for (const [id, match] of matches) {
     if (now - match.createdAt > MATCH_CLEANUP_AGE_MS) {
       matches.delete(id);
     }
   }
-}
-
-export function createSetupToken(
-  chatId: number,
-  organizerTelegramId: number,
-  groupTitle?: string,
-  now = Date.now(),
-): SetupToken {
-  cleanupExpiredSetupTokens(now);
-  let token: string;
-  do {
-    token = generateShortId(8);
-  } while (setupTokens.has(token));
-
-  const entry: SetupToken = {
-    token,
-    chatId,
-    groupTitle,
-    organizerTelegramId,
-    createdAt: now,
-  };
-  setupTokens.set(token, entry);
-  return entry;
-}
-
-export type SetupTokenValidation =
-  | { ok: true; entry: SetupToken }
-  | { ok: false; reason: 'not_found' | 'expired' | 'wrong_user' };
-
-export function validateSetupToken(
-  token: string,
-  userId: number,
-  now = Date.now(),
-): SetupTokenValidation {
-  const entry = setupTokens.get(token);
-  if (!entry) {
-    cleanupExpiredSetupTokens(now);
-    return { ok: false, reason: 'not_found' };
-  }
-  if (now - entry.createdAt > SETUP_TOKEN_TTL_MS) {
-    setupTokens.delete(token);
-    cleanupExpiredSetupTokens(now);
-    return { ok: false, reason: 'expired' };
-  }
-  cleanupExpiredSetupTokens(now);
-  if (entry.organizerTelegramId !== userId) {
-    return { ok: false, reason: 'wrong_user' };
-  }
-  return { ok: true, entry };
 }
 
 export function isValidTime(text: string): boolean {
@@ -257,33 +196,8 @@ export function formatRosterMessage(match: MatchSession): string {
   return lines.join('\n');
 }
 
-export function formatSetupPreview(draft: MatchSetupDraft): string {
-  const lines = [
-    '⚽ Yangi o\'yin',
-    '',
-    `📅 ${draft.dateLabel ?? '—'}`,
-    `🕘 ${draft.time ?? '—'}`,
-    `📍 ${draft.location ?? '—'}`,
-    `👥 ${draft.capacity ?? '—'} o'yinchi`,
-  ];
-  if (draft.groupTitle) {
-    lines.push('', `👥 Group: ${draft.groupTitle}`);
-  }
-  return lines.join('\n');
-}
-
-export function isSetupComplete(draft: MatchSetupDraft): boolean {
-  return (
-    draft.dateLabel != null &&
-    draft.time != null &&
-    draft.location != null &&
-    draft.capacity != null &&
-    isValidMatchCapacity(draft.capacity)
-  );
-}
-
 export function createMatchSession(
-  draft: MatchSetupDraft,
+  draft: GroupMatchDraft,
   messageId: number,
   now = Date.now(),
 ): MatchSession {
@@ -291,7 +205,7 @@ export function createMatchSession(
     id: generateMatchId(),
     chatId: draft.chatId,
     messageId,
-    organizerTelegramId: draft.userId,
+    organizerTelegramId: draft.organizerTelegramId,
     dateLabel: draft.dateLabel!,
     time: draft.time!,
     location: draft.location!,
@@ -306,14 +220,6 @@ export function getMatch(matchId: string): MatchSession | undefined {
   return matches.get(matchId);
 }
 
-export function getDraft(userId: number): MatchSetupDraft | undefined {
-  return matchDrafts.get(userId);
-}
-
-export function clearDraft(userId: number): void {
-  matchDrafts.delete(userId);
-}
-
 export function closeMatchRoster(
   match: MatchSession,
   organizerId: number,
@@ -326,22 +232,4 @@ export function closeMatchRoster(
 
 export function canPrepareTeams(match: MatchSession): boolean {
   return match.status === 'FULL' || match.status === 'CLOSED';
-}
-
-export function ensureDraftFromToken(
-  entry: SetupToken,
-  userId: number,
-): MatchSetupDraft {
-  const existing = matchDrafts.get(userId);
-  if (existing && existing.chatId === entry.chatId) {
-    return existing;
-  }
-  const draft: MatchSetupDraft = {
-    userId,
-    chatId: entry.chatId,
-    groupTitle: entry.groupTitle,
-    step: 'DATE',
-  };
-  matchDrafts.set(userId, draft);
-  return draft;
 }

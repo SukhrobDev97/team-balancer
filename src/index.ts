@@ -44,10 +44,8 @@ import {
   PlayerTier,
 } from './types.js';
 import {
-  handleMatchSetupText,
-  handleMatchStartPayload,
+  handleGroupMatchSetupText,
   registerMatchHandlers,
-  setBotUsername,
 } from './match-handlers.js';
 import {
   handleTeamPrepStartPayload,
@@ -55,7 +53,6 @@ import {
   setTeamPrepBotUsername,
 } from './team-prep-handlers.js';
 import { registerMotmHandlers } from './motm-handlers.js';
-import { clearDraft, getDraft } from './match.js';
 import {
   isValidPlayerCount,
   isValidTeamCount,
@@ -274,13 +271,6 @@ bot.start(async (ctx) => {
   if (!userId) return;
 
   const payload = ctx.startPayload;
-  if (payload?.startsWith('match_')) {
-    const token = payload.slice('match_'.length);
-    const lang = sessionOf(userId)?.language ?? 'uz';
-    await handleMatchStartPayload(ctx, userId, token, lang);
-    return;
-  }
-
   if (payload?.startsWith('teams_')) {
     const token = payload.slice('teams_'.length);
     await handleTeamPrepStartPayload(ctx, userId, token);
@@ -288,7 +278,6 @@ bot.start(async (ctx) => {
   }
 
   clear(userId);
-  clearDraft(userId);
   await showLanguagePicker(ctx);
 });
 
@@ -298,7 +287,6 @@ bot.command('cancel', async (ctx) => {
   const session = sessionOf(userId);
   const lang = session?.language;
   clear(userId);
-  clearDraft(userId);
   await ctx.reply(
     lang ? t(lang, 'cancelMessage') : t('uz', 'cancelMultilingual'),
     languageKeyboard(),
@@ -813,14 +801,17 @@ bot.on('text', async (ctx) => {
     const userId = uid(ctx);
     if (!userId) return;
     const text = ctx.message.text;
+    const chatType = ctx.chat?.type;
 
-    if (!shouldHandlePrivateGameText(ctx.chat?.type, text)) {
+    if (chatType === 'group' || chatType === 'supergroup') {
+      if (!text.startsWith('/')) {
+        await handleGroupMatchSetupText(ctx, userId, text);
+      }
       return;
     }
 
-    if (getDraft(userId)) {
-      const handled = await handleMatchSetupText(ctx, userId, text);
-      if (handled) return;
+    if (!shouldHandlePrivateGameText(chatType, text)) {
+      return;
     }
 
     const session = sessionOf(userId);
@@ -915,7 +906,6 @@ bot.on('text', async (ctx) => {
 bot.launch().then(async () => {
   const me = await bot.telegram.getMe();
   const username = me.username ?? '';
-  setBotUsername(username);
   setTeamPrepBotUsername(username);
   console.log('Bot started');
 });
