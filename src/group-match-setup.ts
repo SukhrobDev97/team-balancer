@@ -144,15 +144,48 @@ export function shouldConsumeGroupMatchDraftText(
   );
 }
 
+export function isCanonicalDraftMessageId(messageId: number | undefined): boolean {
+  return Number.isInteger(messageId) && messageId! > 0;
+}
+
+export function isMissingEditTargetError(message: string): boolean {
+  return (
+    message.includes('message to edit not found') ||
+    message.includes("message can't be edited")
+  );
+}
+
+export function updateDraftMessageId(draft: GroupMatchDraft, messageId: number): void {
+  if (!isCanonicalDraftMessageId(messageId)) {
+    throw new Error('Draft messageId must be a bot-owned message id');
+  }
+  draft.messageId = messageId;
+}
+
+export function replaceGroupMatchDraft(
+  chatId: number,
+  organizerTelegramId: number,
+  botMessageId: number,
+  now = Date.now(),
+): GroupMatchDraft {
+  if (!isCanonicalDraftMessageId(botMessageId)) {
+    throw new Error('Draft messageId must be a bot-owned message id');
+  }
+  const existing = getGroupMatchDraft(chatId, organizerTelegramId);
+  if (existing) {
+    removeGroupMatchDraft(existing);
+  }
+  return createGroupMatchDraft(chatId, organizerTelegramId, botMessageId, now);
+}
+
 export function createGroupMatchDraft(
   chatId: number,
   organizerTelegramId: number,
   messageId: number,
   now = Date.now(),
 ): GroupMatchDraft {
-  const existing = groupMatchDrafts.get(draftKey(chatId, organizerTelegramId));
-  if (existing) {
-    groupMatchDraftsById.delete(existing.id);
+  if (!isCanonicalDraftMessageId(messageId)) {
+    throw new Error('Draft messageId must be a bot-owned message id');
   }
 
   let id: string;

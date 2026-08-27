@@ -12,8 +12,12 @@ import {
   parseCustomCapacity,
   parseMatchDetails,
   removeGroupMatchDraft,
+  replaceGroupMatchDraft,
   setDraftCapacity,
   shouldConsumeGroupMatchDraftText,
+  updateDraftMessageId,
+  isCanonicalDraftMessageId,
+  isMissingEditTargetError,
 } from './group-match-setup.js';
 import { createMatchSession } from './match.js';
 import { isCallbackDataSafe } from './match.js';
@@ -79,11 +83,13 @@ describe('group match draft lifecycle', () => {
   it('replaces unfinished draft for same organizer in same group', () => {
     groupMatchDrafts.clear();
     groupMatchDraftsById.clear();
-    const first = createGroupMatchDraft(-100, 42, 1);
-    const second = createGroupMatchDraft(-100, 42, 2);
+    const first = createGroupMatchDraft(-100, 42, 101);
+    const second = replaceGroupMatchDraft(-100, 42, 202);
     assert.notEqual(first.id, second.id);
     assert.equal(groupMatchDrafts.size, 1);
     assert.equal(getGroupMatchDraft(-100, 42)?.id, second.id);
+    assert.equal(second.messageId, 202);
+    assert.equal(groupMatchDraftsById.has(first.id), false);
   });
 
   it('keeps different organizers and groups separate', () => {
@@ -172,5 +178,49 @@ describe('group setup callbacks', () => {
       assert.ok(data.length <= 64);
       assert.doesNotMatch(data, /Mega Arena/);
     }
+  });
+});
+
+describe('draft message ownership', () => {
+  it('requires a positive bot message id for draft creation', () => {
+    assert.throws(() => createGroupMatchDraft(-100, 42, 0));
+    assert.throws(() => replaceGroupMatchDraft(-100, 42, 0));
+    assert.equal(isCanonicalDraftMessageId(undefined), false);
+    assert.equal(isCanonicalDraftMessageId(55), true);
+  });
+
+  it('stores the bot reply message id as canonical draft messageId', () => {
+    groupMatchDrafts.clear();
+    groupMatchDraftsById.clear();
+    const botReplyMessageId = 88;
+    const commandMessageId = 46;
+    const draft = replaceGroupMatchDraft(-100, 42, botReplyMessageId);
+    assert.equal(draft.messageId, botReplyMessageId);
+    assert.notEqual(draft.messageId, commandMessageId);
+  });
+
+  it('replaces unfinished draft with a fresh bot message id on restart', () => {
+    groupMatchDrafts.clear();
+    groupMatchDraftsById.clear();
+    const staleBotMessageId = 46;
+    const freshBotMessageId = 91;
+    replaceGroupMatchDraft(-100, 42, staleBotMessageId);
+    const draft = replaceGroupMatchDraft(-100, 42, freshBotMessageId);
+    assert.equal(draft.messageId, freshBotMessageId);
+    assert.notEqual(draft.messageId, staleBotMessageId);
+  });
+
+  it('updates draft message id when stale edit fallback sends a new message', () => {
+    const draft = createGroupMatchDraft(-100, 42, 70);
+    updateDraftMessageId(draft, 95);
+    assert.equal(draft.messageId, 95);
+  });
+
+  it('detects missing edit target errors for stale fallback', () => {
+    assert.equal(
+      isMissingEditTargetError('400: Bad Request: message to edit not found'),
+      true,
+    );
+    assert.equal(isMissingEditTargetError('message is not modified'), false);
   });
 });

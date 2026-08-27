@@ -1,7 +1,6 @@
 import { Telegraf, Context } from 'telegraf';
 import {
   applyParsedDetails,
-  createGroupMatchDraft,
   formatCapacityStep,
   formatCustomCapacityStep,
   formatEditDetailsPrompt,
@@ -11,11 +10,15 @@ import {
   getGroupMatchDraftById,
   invalidTimeHelpText,
   isDraftReadyToOpen,
+  isCanonicalDraftMessageId,
+  isMissingEditTargetError,
   parseCustomCapacity,
   parseMatchDetails,
   removeGroupMatchDraft,
+  replaceGroupMatchDraft,
   setDraftCapacity,
   shouldConsumeGroupMatchDraftText,
+  updateDraftMessageId,
 } from './group-match-setup.js';
 import {
   groupCapacityKeyboard,
@@ -73,6 +76,10 @@ async function editDraftMessage(
   text: string,
   extra?: object,
 ): Promise<void> {
+  if (!isCanonicalDraftMessageId(draft.messageId)) {
+    throw new Error('Cannot edit draft without a canonical bot message id');
+  }
+
   try {
     await ctx.telegram.editMessageText(
       draft.chatId,
@@ -83,9 +90,13 @@ async function editDraftMessage(
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    if (!msg.includes('message is not modified')) {
-      throw err;
+    if (msg.includes('message is not modified')) return;
+    if (isMissingEditTargetError(msg)) {
+      const sent = await ctx.telegram.sendMessage(draft.chatId, text, extra);
+      updateDraftMessageId(draft, sent.message_id);
+      return;
     }
+    throw err;
   }
 }
 
@@ -102,23 +113,11 @@ async function beginGroupMatchSetup(ctx: BotContext): Promise<void> {
   if (!userId || !ctx.chat) return;
 
   const text = formatMatchDetailsPrompt();
-  const existing = getGroupMatchDraft(ctx.chat.id, userId);
-
-  if (existing) {
-    await editDraftMessage(ctx, existing, text, groupSetupCancelKeyboard(existing.id));
-    existing.step = 'MATCH_DETAILS';
-    existing.dateLabel = undefined;
-    existing.time = undefined;
-    existing.location = undefined;
-    existing.capacity = undefined;
-    return;
-  }
-
   const sent = await ctx.reply(text);
-  const draft = createGroupMatchDraft(ctx.chat.id, userId, sent.message_id);
+  const draft = replaceGroupMatchDraft(ctx.chat.id, userId, sent.message_id);
   await ctx.telegram.editMessageReplyMarkup(
     ctx.chat.id,
-    sent.message_id,
+    draft.messageId,
     undefined,
     groupSetupCancelKeyboard(draft.id).reply_markup,
   );
