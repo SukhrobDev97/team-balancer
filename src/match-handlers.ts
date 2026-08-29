@@ -49,6 +49,7 @@ import {
   isGroupChatType,
   resolveMessageSenderId,
 } from './utils.js';
+import { editMatchMessage } from './match.js';
 
 type BotContext = Context;
 
@@ -324,16 +325,14 @@ export function registerMatchHandlers(bot: Telegraf<BotContext>): void {
       cleanupStaleMatches();
       const match = createMatchSession(draft, draft.messageId);
       matches.set(match.id, match);
-      const editExtra = draftTelegramExtra(draft, matchCardKeyboard(match));
       removeGroupMatchDraft(draft);
 
       await ctx.answerCbQuery('✅ O\'yin ochildi!');
-      await ctx.telegram.editMessageText(
-        match.chatId,
-        match.messageId,
-        undefined,
+      await editMatchMessage(
+        ctx.telegram,
+        match,
         formatMatchCard(match),
-        editExtra,
+        matchCardKeyboard(match),
       );
     } catch (err) {
       console.error(err);
@@ -508,10 +507,9 @@ export function registerMatchHandlers(bot: Telegraf<BotContext>): void {
           break;
       }
 
-      await ctx.telegram.editMessageText(
-        match.chatId,
-        match.messageId,
-        undefined,
+      await editMatchMessage(
+        ctx.telegram,
+        match,
         formatMatchCard(match),
         matchCardKeyboard(match),
       );
@@ -546,10 +544,9 @@ export function registerMatchHandlers(bot: Telegraf<BotContext>): void {
 
       await ctx.answerCbQuery('Ro\'yxatdan chiqdingiz.');
 
-      await ctx.telegram.editMessageText(
-        match.chatId,
-        match.messageId,
-        undefined,
+      await editMatchMessage(
+        ctx.telegram,
+        match,
         formatMatchCard(match),
         matchCardKeyboard(match),
       );
@@ -568,10 +565,9 @@ export function registerMatchHandlers(bot: Telegraf<BotContext>): void {
       const match = getMatch(ctx.match[1]!);
       if (!match) return;
 
-      await ctx.telegram.editMessageText(
-        match.chatId,
-        match.messageId,
-        undefined,
+      await editMatchMessage(
+        ctx.telegram,
+        match,
         formatRosterMessage(match),
         matchRosterKeyboard(match),
       );
@@ -589,10 +585,9 @@ export function registerMatchHandlers(bot: Telegraf<BotContext>): void {
       const match = getMatch(ctx.match[1]!);
       if (!match) return;
 
-      await ctx.telegram.editMessageText(
-        match.chatId,
-        match.messageId,
-        undefined,
+      await editMatchMessage(
+        ctx.telegram,
+        match,
         formatMatchCard(match),
         matchCardKeyboard(match),
       );

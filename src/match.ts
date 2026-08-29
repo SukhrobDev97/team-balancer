@@ -8,6 +8,7 @@ import {
   MAX_MATCH_CAPACITY,
   MIN_MATCH_CAPACITY,
 } from './types.js';
+import { isMissingEditTargetError, matchTelegramExtra } from './utils.js';
 
 export const MAX_DATE_LABEL_LENGTH = 80;
 export const MAX_LOCATION_LENGTH = 120;
@@ -205,6 +206,7 @@ export function createMatchSession(
     id: generateMatchId(),
     chatId: draft.chatId,
     messageId,
+    messageThreadId: draft.messageThreadId,
     organizerTelegramId: draft.organizerTelegramId,
     dateLabel: draft.dateLabel!,
     time: draft.time!,
@@ -218,6 +220,42 @@ export function createMatchSession(
 
 export function getMatch(matchId: string): MatchSession | undefined {
   return matches.get(matchId);
+}
+
+export async function editMatchMessage(
+  telegram: {
+    editMessageText: (
+      chatId: number,
+      messageId: number,
+      inlineMessageId: undefined,
+      text: string,
+      extra?: object,
+    ) => Promise<unknown>;
+    sendMessage: (chatId: number, text: string, extra?: object) => Promise<{ message_id: number }>;
+  },
+  match: MatchSession,
+  text: string,
+  extra?: object,
+): Promise<void> {
+  const telegramExtra = matchTelegramExtra(match, extra);
+  try {
+    await telegram.editMessageText(
+      match.chatId,
+      match.messageId,
+      undefined,
+      text,
+      telegramExtra,
+    );
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('message is not modified')) return;
+    if (isMissingEditTargetError(msg)) {
+      const sent = await telegram.sendMessage(match.chatId, text, telegramExtra);
+      match.messageId = sent.message_id;
+      return;
+    }
+    throw err;
+  }
 }
 
 export function closeMatchRoster(

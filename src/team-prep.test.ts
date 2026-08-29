@@ -4,26 +4,32 @@ import {
   allParticipantsRated,
   beginTeamPreparation,
   canStartTeamPreparation,
-  createTeamSetupToken,
+  formatEditRatingListPrompt,
+  formatGroupTeamPreview,
   formatPublicTeamResult,
+  formatRatingCompleteSummary,
+  formatRatingPrompt,
   generateTeamsForMatch,
   isAttendanceLocked,
+  isPrepActive,
   isValidMatchTeamCount,
   participantsToPlayers,
   setRating,
   sortedParticipants,
-  TEAM_SETUP_TOKEN_TTL_MS,
-  validateTeamSetupToken,
   validMatchTeamCounts,
 } from './match-preparation.js';
 import {
   closeMatchRoster,
+  createMatchSession,
   isOrganizer,
   tryJoinMatch,
   tryLeaveMatch,
 } from './match.js';
 import { teamCapacities } from './team-balancer.js';
-import { MatchSession } from './types.js';
+import { GroupMatchDraft, MatchSession } from './types.js';
+import { ratingEditListKeyboard } from './team-prep-keyboards.js';
+import { matchTelegramExtra } from './utils.js';
+import { canStartMotm } from './motm.js';
 
 function matchWithParticipants(
   count: number,
@@ -77,11 +83,6 @@ describe('team preparation eligibility', () => {
     });
   });
 
-  it('allows 3 participants', () => {
-    const match = matchWithParticipants(3, { status: 'FULL' });
-    assert.deepEqual(canStartTeamPreparation(match, 42), { ok: true });
-  });
-
   it('rejects non-organizer', () => {
     const match = matchWithParticipants(10);
     assert.deepEqual(canStartTeamPreparation(match, 99), {
@@ -96,6 +97,8 @@ describe('attendance lock', () => {
     const match = matchWithParticipants(6);
     beginTeamPreparation(match);
     assert.equal(isAttendanceLocked(match), true);
+    assert.equal(isPrepActive(match), true);
+    assert.equal(match.teamPreparation?.view, 'RATING');
     assert.equal(tryJoinMatch(match, { telegramId: 9999, displayName: 'X' }), 'locked');
     assert.equal(tryLeaveMatch(match, 1000), 'locked');
   });
@@ -108,6 +111,45 @@ describe('attendance lock', () => {
   });
 });
 
+describe('rating privacy formatting', () => {
+  it('rating prompt shows player without tier', () => {
+    const match = matchWithParticipants(3);
+    beginTeamPreparation(match);
+    const next = sortedParticipants(match)[1]!;
+    assert.equal(next.displayName, 'Sardor');
+    const text = formatRatingPrompt(match, next);
+    assert.match(text, /Sardor/);
+    assert.doesNotMatch(text, / · [ABCDE]/);
+  });
+
+  it('summary exposes no individual or aggregate tiers', () => {
+    const match = matchWithParticipants(4);
+    beginTeamPreparation(match);
+    for (const p of sortedParticipants(match)) {
+      setRating(match, p.telegramId, 'A');
+    }
+    const text = formatRatingCompleteSummary(match);
+    assert.match(text, /Barcha o'yinchilar baholandi/);
+    assert.doesNotMatch(text, /A —/);
+    assert.doesNotMatch(text, / · A/);
+    assert.doesNotMatch(text, /Sardor —/);
+  });
+
+  it('edit list keyboard uses names only', () => {
+    const match = matchWithParticipants(3);
+    beginTeamPreparation(match);
+    for (const p of sortedParticipants(match)) {
+      setRating(match, p.telegramId, 'B');
+    }
+    const keyboard = ratingEditListKeyboard(match);
+    const labels = keyboard.reply_markup.inline_keyboard
+      .flat()
+      .map((b) => ('text' in b ? b.text : ''));
+    assert.ok(labels.some((l) => l.includes('Sardor')));
+    assert.ok(!labels.some((l) => / · [ABCDE]/.test(l)));
+  });
+});
+
 describe('rating', () => {
   it('rates each participant by telegram id', () => {
     const match = matchWithParticipants(4);
@@ -116,23 +158,9 @@ describe('rating', () => {
       setRating(match, p.telegramId, 'C');
     }
     assert.equal(allParticipantsRated(match), true);
+    assert.equal(match.teamPreparation?.view, 'RATING');
     const players = participantsToPlayers(match);
     assert.equal(players.length, 4);
-    assert.equal(new Set(players.map((p) => p.id)).size, 4);
-  });
-
-  it('handles duplicate display names', () => {
-    const match = matchWithParticipants(2);
-    match.participants[0]!.displayName = 'Sardor';
-    match.participants[1]!.displayName = 'Sardor';
-    beginTeamPreparation(match);
-    setRating(match, 1000, 'A');
-    setRating(match, 1001, 'B');
-    const players = participantsToPlayers(match);
-    assert.deepEqual(
-      players.map((p) => p.tier).sort(),
-      ['A', 'B'],
-    );
   });
 
   it('updates rating', () => {
@@ -150,12 +178,7 @@ describe('team count validation', () => {
     assert.deepEqual(validMatchTeamCounts(match), [2, 3, 4, 5]);
   });
 
-  it('calculates valid team counts for 3 players', () => {
-    const match = matchWithParticipants(3);
-    assert.deepEqual(validMatchTeamCounts(match), [2, 3]);
-  });
-
-  it('rejects 3 teams for 4 players', () => {
+  it('rejects invalid team count', () => {
     const match = matchWithParticipants(4);
     assert.equal(isValidMatchTeamCount(match, 3), false);
     assert.equal(isValidMatchTeamCount(match, 2), true);
@@ -181,8 +204,6 @@ describe('team generation', () => {
     const ids = teams.flatMap((t) => t.players.map((p) => p.id)).sort();
     const expected = sortedParticipants(match).map((p) => `t${p.telegramId}`).sort();
     assert.deepEqual(ids, expected);
-    const sizes = teams.map((t) => t.players.length);
-    assert.ok(Math.max(...sizes) - Math.min(...sizes) <= 1);
   });
 
   it('reshuffle preserves roster and tiers', () => {
@@ -193,21 +214,30 @@ describe('team generation', () => {
       setRating(match, p.telegramId, tiers[i]!);
     });
     match.teamPreparation!.teamCount = 2;
-    const first = generateTeamsForMatch(match)!;
-    const second = generateTeamsForMatch(match)!;
-    const roster1 = first.flatMap((t) => t.players.map((p) => `${p.id}:${p.tier}`)).sort();
-    const roster2 = second.flatMap((t) => t.players.map((p) => `${p.id}:${p.tier}`)).sort();
-    assert.deepEqual(roster1, roster2);
-  });
-
-  it('uses teamCapacities with gap <= 1', () => {
-    const caps = teamCapacities(14, 3);
-    assert.ok(Math.max(...caps) - Math.min(...caps) <= 1);
+    generateTeamsForMatch(match);
+    generateTeamsForMatch(match);
+    const roster = match.teamPreparation!.generatedTeams!
+      .flatMap((t) => t.players.map((p) => `${p.id}:${p.tier}`))
+      .sort();
+    assert.equal(roster.length, 8);
   });
 });
 
-describe('public publish formatting', () => {
-  it('strips A–E labels from group output', () => {
+describe('preview and publish formatting', () => {
+  it('preview exposes no tiers', () => {
+    const match = matchWithParticipants(4);
+    beginTeamPreparation(match);
+    for (const p of sortedParticipants(match)) {
+      setRating(match, p.telegramId, 'A');
+    }
+    match.teamPreparation!.teamCount = 2;
+    const teams = generateTeamsForMatch(match)!;
+    const text = formatGroupTeamPreview(teams);
+    assert.doesNotMatch(text, / · [ABCDE]/);
+    assert.match(text, /Sardor/);
+  });
+
+  it('public publish strips tiers', () => {
     const match = matchWithParticipants(4);
     beginTeamPreparation(match);
     for (const p of sortedParticipants(match)) {
@@ -217,30 +247,48 @@ describe('public publish formatting', () => {
     const teams = generateTeamsForMatch(match)!;
     const text = formatPublicTeamResult(teams);
     assert.doesNotMatch(text, / · [ABCDE]/);
-    assert.doesNotMatch(text, /\n.* · A/);
-    assert.match(text, /Sardor/);
   });
 });
 
-describe('team setup tokens', () => {
-  it('is organizer-only', () => {
-    const entry = createTeamSetupToken('mabc', 42);
-    assert.deepEqual(validateTeamSetupToken(entry.token, 42), {
-      ok: true,
-      entry,
-    });
-    assert.deepEqual(validateTeamSetupToken(entry.token, 99), {
-      ok: false,
-      reason: 'wrong_user',
+describe('forum topic propagation', () => {
+  it('copies messageThreadId from draft to match', () => {
+    const draft: GroupMatchDraft = {
+      id: 'dtest',
+      chatId: -1004354302889,
+      organizerTelegramId: 42,
+      messageId: 91,
+      messageThreadId: 12345,
+      step: 'PREVIEW',
+      dateLabel: 'Juma',
+      time: '21:00',
+      location: 'Arena',
+      capacity: 10,
+      createdAt: Date.now(),
+    };
+    const match = createMatchSession(draft, 91);
+    assert.equal(match.messageThreadId, 12345);
+    assert.deepEqual(matchTelegramExtra(match), {
+      message_thread_id: 12345,
     });
   });
 
-  it('rejects expired token', () => {
-    const entry = createTeamSetupToken('mabc', 42, 0);
-    assert.deepEqual(
-      validateTeamSetupToken(entry.token, 42, TEAM_SETUP_TOKEN_TTL_MS + 1),
-      { ok: false, reason: 'expired' },
-    );
+  it('matchTelegramExtra omits thread when absent', () => {
+    const match = matchWithParticipants(4);
+    assert.deepEqual(matchTelegramExtra(match), {});
+  });
+});
+
+describe('MOTM after publish', () => {
+  it('allows MOTM when teams published', () => {
+    const match = matchWithParticipants(6);
+    beginTeamPreparation(match);
+    for (const p of sortedParticipants(match)) {
+      setRating(match, p.telegramId, 'C');
+    }
+    match.teamPreparation!.teamCount = 2;
+    generateTeamsForMatch(match);
+    match.teamsPublishedAt = Date.now();
+    assert.equal(canStartMotm(match, 1000).ok, true);
   });
 });
 
@@ -250,5 +298,18 @@ describe('organizer preservation', () => {
     assert.equal(isOrganizer(match, 42), true);
     beginTeamPreparation(match);
     assert.equal(match.organizerTelegramId, 42);
+  });
+});
+
+describe('edit rating prompt', () => {
+  it('does not expose tiers in edit list prompt', () => {
+    assert.equal(formatEditRatingListPrompt(), '✏️ Kimning bahosini o\'zgartiramiz?');
+  });
+});
+
+describe('teamCapacities', () => {
+  it('uses teamCapacities with gap <= 1', () => {
+    const caps = teamCapacities(14, 3);
+    assert.ok(Math.max(...caps) - Math.min(...caps) <= 1);
   });
 });

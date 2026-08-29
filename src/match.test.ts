@@ -171,6 +171,24 @@ describe('attendance logic', () => {
     assert.equal(isOrganizer(match, 777), true);
     assert.equal(isOrganizer(match, 888), false);
   });
+
+  it('copies forum topic thread id from draft', () => {
+    const draft: GroupMatchDraft = {
+      id: 'dtopic',
+      chatId: -100,
+      organizerTelegramId: 777,
+      messageId: 99,
+      messageThreadId: 555,
+      step: 'PREVIEW',
+      dateLabel: 'Juma',
+      time: '21:00',
+      location: 'Arena',
+      capacity: 10,
+      createdAt: Date.now(),
+    };
+    const match = createMatchSession(draft, 99);
+    assert.equal(match.messageThreadId, 555);
+  });
 });
 
 describe('callback payloads', () => {

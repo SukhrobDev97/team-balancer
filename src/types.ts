@@ -99,11 +99,20 @@ export interface MotmState {
   podium?: MotmPodiumEntry[];
 }
 
+export type TeamPrepView =
+  | 'RATING'
+  | 'SUMMARY'
+  | 'EDIT_LIST'
+  | 'EDIT_TIER'
+  | 'TEAM_COUNT'
+  | 'PREVIEW';
+
 export interface MatchSession {
   id: string;
   organizerTelegramId: number;
   chatId: number;
   messageId: number;
+  messageThreadId?: number;
   dateLabel: string;
   time: string;
   location: string;
@@ -120,32 +129,10 @@ export interface MatchSession {
 export interface TeamPreparation {
   locked: boolean;
   ratings: Record<string, PlayerTier>;
+  view?: TeamPrepView;
+  editingTelegramId?: number;
   teamCount?: number;
   generatedTeams?: Team[];
-}
-
-export interface TeamSetupToken {
-  token: string;
-  matchId: string;
-  organizerTelegramId: number;
-  createdAt: number;
-}
-
-export type OrganizerPrepView =
-  | 'RATING'
-  | 'SUMMARY'
-  | 'REVIEW'
-  | 'EDIT_LIST'
-  | 'EDIT_TIER'
-  | 'TEAM_COUNT'
-  | 'PREVIEW';
-
-export interface OrganizerPrepSession {
-  matchId: string;
-  userId: number;
-  privateMessageId: number;
-  view: OrganizerPrepView;
-  editingTelegramId?: number;
 }
 
 export type GroupMatchDraftStep =

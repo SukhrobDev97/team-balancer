@@ -47,11 +47,7 @@ import {
   handleGroupMatchSetupText,
   registerMatchHandlers,
 } from './match-handlers.js';
-import {
-  handleTeamPrepStartPayload,
-  registerTeamPrepHandlers,
-  setTeamPrepBotUsername,
-} from './team-prep-handlers.js';
+import { registerTeamPrepHandlers } from './team-prep-handlers.js';
 import { registerMotmHandlers } from './motm-handlers.js';
 import {
   isValidPlayerCount,
@@ -274,8 +270,7 @@ bot.start(async (ctx) => {
 
   const payload = ctx.startPayload;
   if (payload?.startsWith('teams_')) {
-    const token = payload.slice('teams_'.length);
-    await handleTeamPrepStartPayload(ctx, userId, token);
+    await ctx.reply('❌ Jamoa tayyorlash endi guruh ichida amalga oshiriladi.');
     return;
   }
 
@@ -906,9 +901,6 @@ bot.on('text', async (ctx) => {
 });
 
 bot.launch().then(async () => {
-  const me = await bot.telegram.getMe();
-  const username = me.username ?? '';
-  setTeamPrepBotUsername(username);
   console.log('Bot started');
 });
 

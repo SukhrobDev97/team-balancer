@@ -2,15 +2,10 @@ import { Markup } from 'telegraf';
 import { MatchSession, PLAYER_TIERS, PlayerTier } from './types.js';
 import {
   prepCallback,
-  ratingTierButtonLabel,
+  sortedParticipants,
   validMatchTeamCounts,
 } from './match-preparation.js';
-
-export function teamSetupLinkKeyboard(deepLink: string) {
-  return Markup.inlineKeyboard([
-    [Markup.button.url('⚙️ Jamoalarni tayyorlash', deepLink)],
-  ]);
-}
+import { truncateLabel } from './utils.js';
 
 export function ratingTierKeyboard(matchId: string, telegramId: number) {
   const row1 = ['A', 'B'] as PlayerTier[];
@@ -18,13 +13,13 @@ export function ratingTierKeyboard(matchId: string, telegramId: number) {
   return Markup.inlineKeyboard([
     row1.map((tier) =>
       Markup.button.callback(
-        ratingTierButtonLabel(tier),
+        tier,
         prepCallback('rt', matchId, `${telegramId}:${tier}`),
       ),
     ),
     row2.map((tier) =>
       Markup.button.callback(
-        ratingTierButtonLabel(tier),
+        tier,
         prepCallback('rt', matchId, `${telegramId}:${tier}`),
       ),
     ),
@@ -33,34 +28,19 @@ export function ratingTierKeyboard(matchId: string, telegramId: number) {
 
 export function ratingSummaryKeyboard(matchId: string) {
   return Markup.inlineKeyboard([
-    [Markup.button.callback('🎲 Jamoalarni tuzish', prepCallback('mts', matchId))],
-    [Markup.button.callback('✏️ Darajalarni ko\'rish', prepCallback('mrv', matchId))],
-    [Markup.button.callback('⬅️ Bekor qilish', prepCallback('mpx', matchId))],
-  ]);
-}
-
-export function ratingReviewKeyboard(matchId: string) {
-  return Markup.inlineKeyboard([
-    [Markup.button.callback('✏️ O\'zgartirish', prepCallback('mre', matchId))],
-    [Markup.button.callback('⬅️ Orqaga', prepCallback('mrb', matchId))],
+    [Markup.button.callback('✏️ Baholarni o\'zgartirish', prepCallback('mre', matchId))],
+    [Markup.button.callback('➡️ Davom etish', prepCallback('mts', matchId))],
   ]);
 }
 
 export function ratingEditListKeyboard(match: MatchSession) {
-  const prep = match.teamPreparation!;
-  const rows = [...match.participants]
-    .sort((a, b) => a.joinedAt - b.joinedAt)
-    .map((p) => {
-      const tier = prep.ratings[`t${p.telegramId}`] ?? '?';
-      const label =
-        p.displayName.length > 20
-          ? `${p.displayName.slice(0, 19)}… · ${tier}`
-          : `${p.displayName} · ${tier}`;
-      return [
-        Markup.button.callback(label, prepCallback('mep', match.id, String(p.telegramId))),
-      ];
-    });
-  rows.push([Markup.button.callback('⬅️ Orqaga', prepCallback('mrv', match.id))]);
+  const rows = sortedParticipants(match).map((p) => {
+    const label = truncateLabel(p.displayName, 28);
+    return [
+      Markup.button.callback(label, prepCallback('mep', match.id, String(p.telegramId))),
+    ];
+  });
+  rows.push([Markup.button.callback('⬅️ Orqaga', prepCallback('mrb', match.id))]);
   return Markup.inlineKeyboard(rows);
 }
 
@@ -94,7 +74,7 @@ export function teamCountKeyboard(match: MatchSession) {
 export function teamPreviewKeyboard(matchId: string) {
   return Markup.inlineKeyboard([
     [Markup.button.callback('🔀 Qayta qurish', prepCallback('mtr', matchId))],
-    [Markup.button.callback('📢 Groupga yuborish', prepCallback('mtp', matchId))],
-    [Markup.button.callback('✏️ Darajalar', prepCallback('mrv', matchId))],
+    [Markup.button.callback('✏️ Baholarni o\'zgartirish', prepCallback('mre', matchId))],
+    [Markup.button.callback('✅ Tasdiqlash', prepCallback('mtp', matchId))],
   ]);
 }

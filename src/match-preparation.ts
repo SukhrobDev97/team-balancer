@@ -6,25 +6,20 @@ import {
   MIN_PER_TEAM,
   MIN_TEAMS,
   Player,
-  PLAYER_TIERS,
   PlayerTier,
   Team,
   TeamPreparation,
-  TeamSetupToken,
-  TIER_STARS,
+  TeamPrepView,
 } from './types.js';
-import { generateShortId, isOrganizer } from './match.js';
+import { isOrganizer } from './match.js';
 import { validTeamCounts } from './utils.js';
 
-export const TEAM_SETUP_TOKEN_TTL_MS = 20 * 60 * 1000;
 export const MIN_TEAM_PREP_PLAYERS = 3;
 export const TEAM_EMOJIS = ['🔵', '🔴', '🟢', '🟡', '🟣'];
 
 function matchMinPerTeam(playerCount: number): number {
   return Math.min(MIN_PER_TEAM, Math.max(1, Math.floor(playerCount / MIN_TEAMS)));
 }
-
-export const teamSetupTokens = new Map<string, TeamSetupToken>();
 
 export function participantPlayerId(telegramId: number): string {
   return `t${telegramId}`;
@@ -63,9 +58,10 @@ export function canStartTeamPreparation(
 
 export function beginTeamPreparation(match: MatchSession): TeamPreparation {
   if (!match.teamPreparation) {
-    match.teamPreparation = { locked: true, ratings: {} };
+    match.teamPreparation = { locked: true, ratings: {}, view: 'RATING' };
   } else {
     match.teamPreparation.locked = true;
+    match.teamPreparation.view = 'RATING';
   }
   return match.teamPreparation;
 }
@@ -77,59 +73,8 @@ export function ensureTeamPreparation(match: MatchSession): TeamPreparation {
   return match.teamPreparation;
 }
 
-export function cleanupExpiredTeamSetupTokens(now = Date.now()): void {
-  for (const [token, entry] of teamSetupTokens) {
-    if (now - entry.createdAt > TEAM_SETUP_TOKEN_TTL_MS) {
-      teamSetupTokens.delete(token);
-    }
-  }
-}
-
-export function createTeamSetupToken(
-  matchId: string,
-  organizerTelegramId: number,
-  now = Date.now(),
-): TeamSetupToken {
-  cleanupExpiredTeamSetupTokens(now);
-  let token: string;
-  do {
-    token = generateShortId(8);
-  } while (teamSetupTokens.has(token));
-
-  const entry: TeamSetupToken = {
-    token,
-    matchId,
-    organizerTelegramId,
-    createdAt: now,
-  };
-  teamSetupTokens.set(token, entry);
-  return entry;
-}
-
-export type TeamSetupTokenValidation =
-  | { ok: true; entry: TeamSetupToken }
-  | { ok: false; reason: 'not_found' | 'expired' | 'wrong_user' };
-
-export function validateTeamSetupToken(
-  token: string,
-  userId: number,
-  now = Date.now(),
-): TeamSetupTokenValidation {
-  const entry = teamSetupTokens.get(token);
-  if (!entry) {
-    cleanupExpiredTeamSetupTokens(now);
-    return { ok: false, reason: 'not_found' };
-  }
-  if (now - entry.createdAt > TEAM_SETUP_TOKEN_TTL_MS) {
-    teamSetupTokens.delete(token);
-    cleanupExpiredTeamSetupTokens(now);
-    return { ok: false, reason: 'expired' };
-  }
-  cleanupExpiredTeamSetupTokens(now);
-  if (entry.organizerTelegramId !== userId) {
-    return { ok: false, reason: 'wrong_user' };
-  }
-  return { ok: true, entry };
+export function isPrepActive(match: MatchSession): boolean {
+  return match.teamPreparation?.locked === true && match.teamsPublishedAt == null;
 }
 
 export function getRating(
@@ -168,21 +113,6 @@ export function ratedCount(match: MatchSession): number {
 
 export function allParticipantsRated(match: MatchSession): boolean {
   return ratedCount(match) === match.participants.length;
-}
-
-export function ratingTierCounts(
-  match: MatchSession,
-): Record<PlayerTier, number> {
-  const counts = Object.fromEntries(PLAYER_TIERS.map((t) => [t, 0])) as Record<
-    PlayerTier,
-    number
-  >;
-  const prep = match.teamPreparation;
-  if (!prep) return counts;
-  for (const tier of Object.values(prep.ratings)) {
-    counts[tier]++;
-  }
-  return counts;
 }
 
 export function participantsToPlayers(match: MatchSession): Player[] {
@@ -240,16 +170,6 @@ export function teamSkillDiff(teams: Team[]): number {
   return Math.max(...scores) - Math.min(...scores);
 }
 
-export function formatPrepStartText(match: MatchSession): string {
-  return [
-    `⚽ ${match.dateLabel} — ${match.time}`,
-    `📍 ${match.location}`,
-    `👥 ${match.participants.length} o'yinchi`,
-    '',
-    'O\'yinchilar darajasini belgilang.',
-  ].join('\n');
-}
-
 export function formatRatingPrompt(
   match: MatchSession,
   participant: MatchParticipant,
@@ -258,6 +178,8 @@ export function formatRatingPrompt(
   const order = sortedParticipants(match);
   const index = order.findIndex((p) => p.telegramId === participant.telegramId);
   return [
+    '⚙️ Jamoalarni tayyorlash',
+    '',
     `${index + 1} / ${total}`,
     '',
     `👤 ${participant.displayName}`,
@@ -266,36 +188,35 @@ export function formatRatingPrompt(
   ].join('\n');
 }
 
-export function formatRatingSummary(match: MatchSession): string {
-  const total = match.participants.length;
-  const counts = ratingTierCounts(match);
-  const lines = [
-    `✅ ${total} / ${total} baholandi`,
+export function formatRatingCompleteSummary(match: MatchSession): string {
+  return [
+    '✅ Barcha o\'yinchilar baholandi',
     '',
-    ...PLAYER_TIERS.map((t) => `${t} — ${counts[t]}`),
-  ];
-  return lines.join('\n');
+    `👥 ${match.participants.length} ta o'yinchi`,
+  ].join('\n');
 }
 
-export function formatRatingReview(match: MatchSession): string {
-  const order = sortedParticipants(match);
-  const prep = match.teamPreparation!;
-  const lines = order.map((p, i) => {
-    const tier = prep.ratings[participantPlayerId(p.telegramId)]!;
-    return `${i + 1}. ${p.displayName} — ${tier}`;
-  });
-  return lines.join('\n');
+export function formatEditRatingListPrompt(): string {
+  return '✏️ Kimning bahosini o\'zgartiramiz?';
 }
 
-export function formatPrivateTeamPreview(match: MatchSession, teams: Team[]): string {
+export function formatEditRatingTierPrompt(displayName: string): string {
+  return [`👤 ${displayName}`, '', 'Yangi darajani tanlang:'].join('\n');
+}
+
+export function formatTeamCountPrompt(): string {
+  return '⚽ Nechta jamoa qilamiz?';
+}
+
+export function formatGroupTeamPreview(teams: Team[]): string {
   const diff = teamSkillDiff(teams);
   const blocks = teams.map((team, i) => {
     const emoji = TEAM_EMOJIS[i] ?? '⚪';
-    const lines = team.players.map((p) => `${p.name} · ${p.tier}`);
-    return [`${emoji} JAMOA ${i + 1}`, ...lines].join('\n');
+    const lines = team.players.map((p) => p.name);
+    return [`${emoji} ${i + 1}-jamoa`, ...lines].join('\n');
   });
   return [
-    '⚽ JAMOALAR TAYYOR',
+    '⚽ Jamoalar tayyor',
     '',
     ...blocks,
     '',
@@ -319,10 +240,28 @@ export function formatPublicTeamResult(teams: Team[]): string {
   ].join('\n');
 }
 
+export function formatPrepCompleteCard(match: MatchSession): string {
+  const teamCount = match.teamPreparation?.teamCount ?? 0;
+  return [
+    '✅ Jamoalar tayyorlandi',
+    '',
+    `👥 ${match.participants.length} ta o'yinchi`,
+    `⚽ ${teamCount} ta jamoa`,
+  ].join('\n');
+}
+
 export function ratingTierButtonLabel(tier: PlayerTier): string {
-  return `${tier} ${TIER_STARS[tier]}`;
+  return tier;
 }
 
 export function prepCallback(prefix: string, matchId: string, suffix = ''): string {
   return suffix ? `${prefix}:${matchId}:${suffix}` : `${prefix}:${matchId}`;
+}
+
+export function isExpectedPrepView(
+  match: MatchSession,
+  ...views: TeamPrepView[]
+): boolean {
+  const view = match.teamPreparation?.view;
+  return view != null && views.includes(view);
 }

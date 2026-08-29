@@ -9,6 +9,7 @@ import {
   startMotm,
 } from './motm.js';
 import { motmFinishedKeyboard, motmVotingKeyboard } from './motm-keyboards.js';
+import { matchTelegramExtra } from './utils.js';
 
 type BotContext = Context;
 
@@ -39,13 +40,17 @@ async function refreshMotmMessage(
       motm.messageId,
       undefined,
       text,
-      extra,
+      matchTelegramExtra(match, extra),
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes('message is not modified')) return;
     if (allowResultFallback && finished) {
-      const sent = await ctx.telegram.sendMessage(match.chatId, text, extra);
+      const sent = await ctx.telegram.sendMessage(
+        match.chatId,
+        text,
+        matchTelegramExtra(match, extra),
+      );
       motm.messageId = sent.message_id;
       return;
     }
@@ -82,7 +87,7 @@ export function registerMotmHandlers(bot: Telegraf<BotContext>): void {
         const sent = await ctx.telegram.sendMessage(
           match.chatId,
           formatMotmOpenText(match),
-          motmVotingKeyboard(match),
+          matchTelegramExtra(match, motmVotingKeyboard(match)),
         );
         match.motm!.messageId = sent.message_id;
         await ctx.answerCbQuery('🗳 Ovoz berish boshlandi.');

@@ -1,6 +1,7 @@
 import { Markup } from 'telegraf';
 import { MatchSession } from './types.js';
 import { canPrepareTeams, matchCallbackData } from './match.js';
+import { isPrepActive } from './match-preparation.js';
 
 export function matchCardKeyboard(match: MatchSession) {
   const rows: ReturnType<typeof Markup.button.callback>[][] = [];
@@ -33,7 +34,7 @@ export function matchCardKeyboard(match: MatchSession) {
     ]);
   }
 
-  if (canPrepareTeams(match) && !match.teamPreparation?.locked) {
+  if (canPrepareTeams(match) && !match.teamPreparation?.locked && !isPrepActive(match)) {
     rows.push([
       Markup.button.callback(
         '⚙️ Jamoalarni tayyorlash',

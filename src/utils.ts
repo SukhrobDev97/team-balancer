@@ -84,6 +84,21 @@ export function getMessageThreadId(message?: {
   return Number.isInteger(id) && id! > 0 ? id : undefined;
 }
 
+export function matchTelegramExtra(
+  match: { messageThreadId?: number },
+  extra?: object,
+): object {
+  if (match.messageThreadId == null) return extra ?? {};
+  return { ...extra, message_thread_id: match.messageThreadId };
+}
+
+export function isMissingEditTargetError(message: string): boolean {
+  return (
+    message.includes('message to edit not found') ||
+    message.includes("message can't be edited")
+  );
+}
+
 export function resolveMessageSenderId(ctx: {
   from?: { id: number };
 }): number | undefined {
