@@ -27,6 +27,7 @@ import {
 } from './match.js';
 import { teamCapacities } from './team-balancer.js';
 import { GroupMatchDraft, MatchSession } from './types.js';
+import { mt } from './match-i18n.js';
 import { ratingEditListKeyboard } from './team-prep-keyboards.js';
 import { matchTelegramExtra } from './utils.js';
 import { canStartMotm } from './motm.js';
@@ -52,6 +53,7 @@ function matchWithParticipants(
     participants,
     status: 'FULL',
     createdAt: Date.now(),
+    language: 'uz',
     ...overrides,
   };
 }
@@ -232,7 +234,7 @@ describe('preview and publish formatting', () => {
     }
     match.teamPreparation!.teamCount = 2;
     const teams = generateTeamsForMatch(match)!;
-    const text = formatGroupTeamPreview(teams);
+    const text = formatGroupTeamPreview(match, teams);
     assert.doesNotMatch(text, / · [ABCDE]/);
     assert.match(text, /Sardor/);
   });
@@ -245,7 +247,7 @@ describe('preview and publish formatting', () => {
     }
     match.teamPreparation!.teamCount = 2;
     const teams = generateTeamsForMatch(match)!;
-    const text = formatPublicTeamResult(teams);
+    const text = formatPublicTeamResult(match, teams);
     assert.doesNotMatch(text, / · [ABCDE]/);
   });
 });
@@ -259,6 +261,7 @@ describe('forum topic propagation', () => {
       messageId: 91,
       messageThreadId: 12345,
       step: 'PREVIEW',
+      language: 'uz',
       dateLabel: 'Juma',
       time: '21:00',
       location: 'Arena',
@@ -303,7 +306,8 @@ describe('organizer preservation', () => {
 
 describe('edit rating prompt', () => {
   it('does not expose tiers in edit list prompt', () => {
-    assert.equal(formatEditRatingListPrompt(), '✏️ Kimning bahosini o\'zgartiramiz?');
+    const match = matchWithParticipants(3);
+    assert.equal(formatEditRatingListPrompt(match), mt('uz', 'matchEditRatingList'));
   });
 });
 

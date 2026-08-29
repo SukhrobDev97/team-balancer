@@ -9,6 +9,7 @@ import {
   MIN_MATCH_CAPACITY,
 } from './types.js';
 import { isMissingEditTargetError, matchTelegramExtra } from './utils.js';
+import { mt } from './match-i18n.js';
 
 export const MAX_DATE_LABEL_LENGTH = 80;
 export const MAX_LOCATION_LENGTH = 120;
@@ -71,13 +72,14 @@ export function participantDisplayName(
   firstName?: string,
   lastName?: string,
   username?: string,
+  language: MatchSession['language'] = 'uz',
 ): string {
   const first = (firstName ?? '').trim();
   const last = (lastName ?? '').trim();
   const combined = [first, last].filter(Boolean).join(' ');
   if (combined) return combined;
   if (username) return `@${username.replace(/^@/, '')}`;
-  return "O'yinchi";
+  return mt(language, 'matchDefaultPlayer');
 }
 
 export function isOrganizer(match: MatchSession, telegramId: number): boolean {
@@ -138,26 +140,30 @@ function participantLines(match: MatchSession): string[] {
 }
 
 export function formatMatchCard(match: MatchSession): string {
+  const lang = match.language;
   const header = [`⚽ ${match.dateLabel} — ${match.time}`, `📍 ${match.location}`, ''];
-  const countLine = `👥 ${match.participants.length} / ${match.capacity}`;
+  const countLine = mt(lang, 'matchCountLine', {
+    current: match.participants.length,
+    capacity: match.capacity,
+  });
 
   if (match.status === 'FULL') {
     const lines = [...header, countLine, ''];
     if (match.participants.length <= INLINE_ROSTER_MAX) {
-      lines.push(...participantLines(match), '', '✅ TARKIB TO\'LDI');
+      lines.push(...participantLines(match), '', mt(lang, 'matchRosterFull'));
     } else {
-      lines.push('✅ TARKIB TO\'LDI');
+      lines.push(mt(lang, 'matchRosterFull'));
     }
     return lines.join('\n');
   }
 
   if (match.status === 'CLOSED') {
-    return [...header, countLine, '', '🔒 RO\'YXAT YOPILDI'].join('\n');
+    return [...header, countLine, '', mt(lang, 'matchRosterClosed')].join('\n');
   }
 
   if (match.status === 'CANCELLED') {
     return [
-      '❌ O\'YIN BEKOR QILINDI',
+      mt(lang, 'matchCancelledBanner'),
       '',
       `⚽ ${match.dateLabel} — ${match.time}`,
       `📍 ${match.location}`,
@@ -165,7 +171,7 @@ export function formatMatchCard(match: MatchSession): string {
   }
 
   if (match.participants.length === 0) {
-    return [...header, countLine, '', 'Hali hech kim yozilmadi.'].join('\n');
+    return [...header, countLine, '', mt(lang, 'matchNoSignups')].join('\n');
   }
 
   const lines = [...header, countLine, ''];
@@ -176,22 +182,23 @@ export function formatMatchCard(match: MatchSession): string {
 }
 
 export function formatRosterMessage(match: MatchSession): string {
+  const lang = match.language;
   const lines = [
     `⚽ ${match.dateLabel} — ${match.time}`,
     `📍 ${match.location}`,
     '',
-    `👥 Ro'yxat — ${match.participants.length} / ${match.capacity}`,
+    `${mt(lang, 'matchRosterTitle')} — ${match.participants.length} / ${match.capacity}`,
     '',
   ];
 
   if (match.participants.length === 0) {
-    lines.push('Hali hech kim yozilmadi.');
+    lines.push(mt(lang, 'matchNoSignups'));
   } else {
     lines.push(...participantLines(match));
   }
 
   if (match.status === 'FULL') {
-    lines.push('', '✅ TARKIB TO\'LDI');
+    lines.push('', mt(lang, 'matchRosterFull'));
   }
 
   return lines.join('\n');
@@ -207,6 +214,7 @@ export function createMatchSession(
     chatId: draft.chatId,
     messageId,
     messageThreadId: draft.messageThreadId,
+    language: draft.language,
     organizerTelegramId: draft.organizerTelegramId,
     dateLabel: draft.dateLabel!,
     time: draft.time!,

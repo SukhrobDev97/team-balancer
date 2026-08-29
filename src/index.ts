@@ -49,6 +49,8 @@ import {
 } from './match-handlers.js';
 import { registerTeamPrepHandlers } from './team-prep-handlers.js';
 import { registerMotmHandlers } from './motm-handlers.js';
+import { mt } from './match-i18n.js';
+import { getUserLanguage, setUserLanguage } from './user-language.js';
 import {
   isValidPlayerCount,
   isValidTeamCount,
@@ -78,6 +80,7 @@ function clear(userId: number): void {
 }
 
 function createSession(userId: number, language: Language): GameSession {
+  setUserLanguage(userId, language);
   const s = emptySession(userId, language);
   sessions.set(userId, s);
   return s;
@@ -270,7 +273,7 @@ bot.start(async (ctx) => {
 
   const payload = ctx.startPayload;
   if (payload?.startsWith('teams_')) {
-    await ctx.reply('❌ Jamoa tayyorlash endi guruh ichida amalga oshiriladi.');
+    await ctx.reply(mt(getUserLanguage(userId), 'matchTeamsDeepLinkDeprecated'));
     return;
   }
 
@@ -296,6 +299,7 @@ bot.action(/^lang:(uz|ru|en)$/, async (ctx) => {
     const userId = uid(ctx);
     if (!userId) return;
     const language = ctx.match[1] as Language;
+    setUserLanguage(userId, language);
     let session = sessionOf(userId);
     if (!session) {
       session = createSession(userId, language);

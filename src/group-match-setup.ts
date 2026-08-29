@@ -5,8 +5,9 @@ import {
   isValidMatchCapacity,
   isValidTime,
 } from './match.js';
-import { GroupMatchDraft, GroupMatchDraftStep } from './types.js';
+import { GroupMatchDraft, GroupMatchDraftStep, Language } from './types.js';
 import { parsePositiveInt, isGroupChatType } from './utils.js';
+import { mt } from './match-i18n.js';
 
 /** In-memory group drafts. Lost on bot restart. */
 export const groupMatchDrafts = new Map<string, GroupMatchDraft>();
@@ -54,39 +55,39 @@ export function parseMatchDetails(text: string): ParsedMatchDetails {
   return { ok: true, dateLabel, time, location };
 }
 
-export function invalidTimeHelpText(): string {
+export function invalidTimeHelpText(lang: Language): string {
   return [
-    "❌ Vaqtni HH:MM ko'rinishida kiriting.",
+    mt(lang, 'matchInvalidTime'),
     '',
-    'Masalan:',
+    mt(lang, 'matchDetailsExample'),
     'Juma',
     '21:00',
     'Mega Arena',
   ].join('\n');
 }
 
-export function formatMatchDetailsPrompt(): string {
+export function formatMatchDetailsPrompt(lang: Language): string {
   return [
-    '⚽ Yangi o\'yin',
+    mt(lang, 'matchDetailsTitle'),
     '',
-    'Ma\'lumotlarni 3 qatorda yuboring:',
+    mt(lang, 'matchDetailsHint'),
     '',
-    '📅 Kun',
-    '🕘 Vaqt',
-    '📍 Joy',
+    mt(lang, 'matchDetailsDate'),
+    mt(lang, 'matchDetailsTime'),
+    mt(lang, 'matchDetailsLocation'),
     '',
-    'Masalan:',
+    mt(lang, 'matchDetailsExample'),
     'Juma',
     '21:00',
     'Mega Arena',
   ].join('\n');
 }
 
-export function formatEditDetailsPrompt(): string {
+export function formatEditDetailsPrompt(lang: Language): string {
   return [
-    'Yangi ma\'lumotlarni 3 qatorda yuboring:',
+    mt(lang, 'matchEditDetailsHint'),
     '',
-    'Masalan:',
+    mt(lang, 'matchDetailsExample'),
     'Juma',
     '21:00',
     'Mega Arena',
@@ -94,7 +95,7 @@ export function formatEditDetailsPrompt(): string {
 }
 
 export function formatDraftHeader(draft: GroupMatchDraft): string[] {
-  const lines = ['⚽ Yangi o\'yin', ''];
+  const lines = [mt(draft.language, 'matchDetailsTitle'), ''];
   if (draft.dateLabel) lines.push(`📅 ${draft.dateLabel}`);
   if (draft.time) lines.push(`🕘 ${draft.time}`);
   if (draft.location) lines.push(`📍 ${draft.location}`);
@@ -102,23 +103,23 @@ export function formatDraftHeader(draft: GroupMatchDraft): string[] {
 }
 
 export function formatCapacityStep(draft: GroupMatchDraft): string {
-  return [...formatDraftHeader(draft), '', '👥 Nechta o\'yinchi kerak?'].join('\n');
+  return [...formatDraftHeader(draft), '', mt(draft.language, 'matchCapacityQuestion')].join('\n');
 }
 
 export function formatCustomCapacityStep(draft: GroupMatchDraft): string {
   return [
     ...formatDraftHeader(draft),
     '',
-    '👥 O\'yinchilar sonini yozing:',
+    mt(draft.language, 'matchCustomCapacityPrompt'),
   ].join('\n');
 }
 
 export function formatPreviewStep(draft: GroupMatchDraft): string {
   return [
     ...formatDraftHeader(draft),
-    `👥 ${draft.capacity} o'yinchi`,
+    mt(draft.language, 'matchPreviewPlayers', { count: draft.capacity! }),
     '',
-    'Hammasi to\'g\'rimi?',
+    mt(draft.language, 'matchPreviewConfirm'),
   ].join('\n');
 }
 
@@ -199,6 +200,7 @@ export function replaceGroupMatchDraft(
   organizerTelegramId: number,
   botMessageId: number,
   messageThreadId?: number,
+  language: Language = 'uz',
   now = Date.now(),
 ): GroupMatchDraft {
   if (!isCanonicalDraftMessageId(botMessageId)) {
@@ -213,6 +215,7 @@ export function replaceGroupMatchDraft(
     organizerTelegramId,
     botMessageId,
     messageThreadId,
+    language,
     now,
   );
 }
@@ -222,6 +225,7 @@ export function createGroupMatchDraft(
   organizerTelegramId: number,
   messageId: number,
   messageThreadId?: number,
+  language: Language = 'uz',
   now = Date.now(),
 ): GroupMatchDraft {
   if (!isCanonicalDraftMessageId(messageId)) {
@@ -239,6 +243,7 @@ export function createGroupMatchDraft(
     organizerTelegramId,
     messageId,
     messageThreadId,
+    language,
     step: 'MATCH_DETAILS',
     createdAt: now,
   };

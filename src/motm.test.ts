@@ -41,6 +41,7 @@ function publishedMatch(
     chatId: -100,
     messageId: 1,
     organizerTelegramId: 42,
+    language: 'uz',
     dateLabel: 'Juma',
     time: '21:00',
     location: 'Arena',
@@ -493,7 +494,8 @@ describe('MOTM identities and callbacks', () => {
   });
 
   it('adds MOTM to the published teams keyboard', () => {
-    const kb = publishedTeamsKeyboard('mtestmotm01');
+    const match = publishedMatch(['Sardor']);
+    const kb = publishedTeamsKeyboard(match);
     const texts = kb.reply_markup.inline_keyboard.flat().map((b) => b.text);
     assert.ok(texts.includes('🏆 MOTM'));
     const motm = kb.reply_markup.inline_keyboard

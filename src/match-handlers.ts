@@ -30,6 +30,7 @@ import {
 import {
   cleanupStaleMatches,
   createMatchSession,
+  editMatchMessage,
   formatMatchCard,
   formatRosterMessage,
   getMatch,
@@ -49,7 +50,8 @@ import {
   isGroupChatType,
   resolveMessageSenderId,
 } from './utils.js';
-import { editMatchMessage } from './match.js';
+import { mt } from './match-i18n.js';
+import { getUserLanguage } from './user-language.js';
 
 type BotContext = Context;
 
@@ -65,20 +67,9 @@ function isPrivateChat(ctx: BotContext): boolean {
   return ctx.chat?.type === 'private';
 }
 
-function capacityRangeError(): string {
-  return `❌ ${MIN_MATCH_CAPACITY} dan ${MAX_MATCH_CAPACITY} gacha son kiriting.`;
-}
-
-function createMatchInstructionsText(): string {
-  return [
-    '⚽ O\'yin yaratish',
-    '',
-    'Bolinvolni futbol groupingizga qo\'shing va groupda:',
-    '',
-    '/match',
-    '',
-    'yuboring.',
-  ].join('\n');
+function createMatchInstructionsText(userId: number): string {
+  const lang = getUserLanguage(userId);
+  return [mt(lang, 'matchCreateInstructionsTitle'), '', mt(lang, 'matchCreateInstructionsBody')].join('\n');
 }
 
 async function editDraftMessage(
@@ -127,7 +118,8 @@ async function beginGroupMatchSetup(ctx: BotContext): Promise<void> {
   const userId = uid(ctx);
   if (!userId || !ctx.chat || !ctx.message || !('text' in ctx.message)) return;
 
-  const text = formatMatchDetailsPrompt();
+  const language = getUserLanguage(userId);
+  const text = formatMatchDetailsPrompt(language);
   const threadId = getMessageThreadId(ctx.message);
   const sent = await ctx.reply(
     text,
@@ -138,12 +130,13 @@ async function beginGroupMatchSetup(ctx: BotContext): Promise<void> {
     userId,
     sent.message_id,
     threadId,
+    language,
   );
   await ctx.telegram.editMessageReplyMarkup(
     ctx.chat.id,
     draft.messageId,
     undefined,
-    groupSetupCancelKeyboard(draft.id).reply_markup,
+    groupSetupCancelKeyboard(draft).reply_markup,
   );
 }
 
@@ -158,14 +151,18 @@ export async function handleGroupMatchSetupText(
   const route = shouldRouteGroupMatchText(ctx.chat.type, draft, userId);
   if (route === 'ignore' || !draft) return 'ignored';
 
+  const lang = draft.language;
+
   if (route === 'custom_capacity') {
     const capacity = parseCustomCapacity(text);
     if (capacity == null) {
       await editDraftMessage(
         ctx,
         draft,
-        formatCustomCapacityStep(draft) + '\n\n' + capacityRangeError(),
-        groupSetupCancelKeyboard(draft.id),
+        formatCustomCapacityStep(draft) +
+          '\n\n' +
+          mt(lang, 'matchCapacityRange', { min: MIN_MATCH_CAPACITY, max: MAX_MATCH_CAPACITY }),
+        groupSetupCancelKeyboard(draft),
       );
       return 'handled';
     }
@@ -174,7 +171,7 @@ export async function handleGroupMatchSetupText(
       ctx,
       draft,
       formatPreviewStep(draft),
-      groupPreviewKeyboard(draft.id),
+      groupPreviewKeyboard(draft),
     );
     return 'handled';
   }
@@ -183,22 +180,22 @@ export async function handleGroupMatchSetupText(
   if (!parsed.ok) {
     const errorText =
       parsed.reason === 'invalid_time'
-        ? invalidTimeHelpText()
+        ? invalidTimeHelpText(lang)
         : parsed.reason === 'too_few_lines'
           ? [
-              '❌ Kamida 3 qator kerak.',
+              mt(lang, 'matchTooFewLines'),
               '',
-              'Masalan:',
+              mt(lang, 'matchDetailsExample'),
               'Juma',
               '21:00',
               'Mega Arena',
             ].join('\n')
-          : '❌ Ma\'lumotlarni tekshirib, qayta yuboring.';
+          : mt(lang, 'matchInvalidDetails');
     await editDraftMessage(
       ctx,
       draft,
-      formatMatchDetailsPrompt() + '\n\n' + errorText,
-      groupSetupCancelKeyboard(draft.id),
+      formatMatchDetailsPrompt(draft.language) + '\n\n' + errorText,
+      groupSetupCancelKeyboard(draft),
     );
     return 'handled';
   }
@@ -209,14 +206,14 @@ export async function handleGroupMatchSetupText(
       ctx,
       draft,
       formatPreviewStep(draft),
-      groupPreviewKeyboard(draft.id),
+      groupPreviewKeyboard(draft),
     );
   } else {
     await editDraftMessage(
       ctx,
       draft,
       formatCapacityStep(draft),
-      groupCapacityKeyboard(draft.id),
+      groupCapacityKeyboard(draft),
     );
   }
   return 'handled';
@@ -225,9 +222,10 @@ export async function handleGroupMatchSetupText(
 export function registerMatchHandlers(bot: Telegraf<BotContext>): void {
   bot.command('match', async (ctx) => {
     try {
+      const userId = uid(ctx);
       if (!isGroupChat(ctx)) {
-        if (isPrivateChat(ctx)) {
-          await ctx.reply(createMatchInstructionsText());
+        if (isPrivateChat(ctx) && userId) {
+          await ctx.reply(createMatchInstructionsText(userId));
         }
         return;
       }
@@ -235,14 +233,17 @@ export function registerMatchHandlers(bot: Telegraf<BotContext>): void {
       await beginGroupMatchSetup(ctx);
     } catch (err) {
       console.error(err);
-      await ctx.reply('❌ Xatolik yuz berdi. Qaytadan urinib ko\'ring.');
+      const userId = uid(ctx);
+      await ctx.reply(mt(userId ? getUserLanguage(userId) : 'uz', 'matchGenericError'));
     }
   });
 
   bot.action('create_match', async (ctx) => {
     try {
       await ctx.answerCbQuery();
-      await ctx.reply(createMatchInstructionsText());
+      const userId = uid(ctx);
+      if (!userId) return;
+      await ctx.reply(createMatchInstructionsText(userId));
     } catch (err) {
       console.error(err);
     }
@@ -258,11 +259,16 @@ export function registerMatchHandlers(bot: Telegraf<BotContext>): void {
         return;
       }
       if (!requireDraftOrganizer(ctx, draft)) {
-        await ctx.answerCbQuery('❌ Bu o\'yinni faqat tashkilotchi sozlay oladi.');
+        await ctx.answerCbQuery(mt(draft.language, 'matchOrganizerOnly'));
         return;
       }
       if (!isValidMatchCapacity(capacity)) {
-        await ctx.answerCbQuery(capacityRangeError());
+        await ctx.answerCbQuery(
+          mt(draft.language, 'matchCapacityRange', {
+            min: MIN_MATCH_CAPACITY,
+            max: MAX_MATCH_CAPACITY,
+          }),
+        );
         return;
       }
 
@@ -272,7 +278,7 @@ export function registerMatchHandlers(bot: Telegraf<BotContext>): void {
         ctx,
         draft,
         formatPreviewStep(draft),
-        groupPreviewKeyboard(draft.id),
+        groupPreviewKeyboard(draft),
       );
     } catch (err) {
       console.error(err);
@@ -288,7 +294,7 @@ export function registerMatchHandlers(bot: Telegraf<BotContext>): void {
         return;
       }
       if (!requireDraftOrganizer(ctx, draft)) {
-        await ctx.answerCbQuery('❌ Bu o\'yinni faqat tashkilotchi sozlay oladi.');
+        await ctx.answerCbQuery(mt(draft.language, 'matchOrganizerOnly'));
         return;
       }
 
@@ -298,7 +304,7 @@ export function registerMatchHandlers(bot: Telegraf<BotContext>): void {
         ctx,
         draft,
         formatCustomCapacityStep(draft),
-        groupSetupCancelKeyboard(draft.id),
+        groupSetupCancelKeyboard(draft),
       );
     } catch (err) {
       console.error(err);
@@ -314,11 +320,11 @@ export function registerMatchHandlers(bot: Telegraf<BotContext>): void {
         return;
       }
       if (!requireDraftOrganizer(ctx, draft)) {
-        await ctx.answerCbQuery('❌ Bu o\'yinni faqat tashkilotchi sozlay oladi.');
+        await ctx.answerCbQuery(mt(draft.language, 'matchOrganizerOnly'));
         return;
       }
       if (!isDraftReadyToOpen(draft)) {
-        await ctx.answerCbQuery('❌ Avval barcha ma\'lumotlarni to\'ldiring.');
+        await ctx.answerCbQuery(mt(draft.language, 'matchDraftIncomplete'));
         return;
       }
 
@@ -327,7 +333,7 @@ export function registerMatchHandlers(bot: Telegraf<BotContext>): void {
       matches.set(match.id, match);
       removeGroupMatchDraft(draft);
 
-      await ctx.answerCbQuery('✅ O\'yin ochildi!');
+      await ctx.answerCbQuery(mt(draft.language, 'matchOpened'));
       await editMatchMessage(
         ctx.telegram,
         match,
@@ -336,7 +342,11 @@ export function registerMatchHandlers(bot: Telegraf<BotContext>): void {
       );
     } catch (err) {
       console.error(err);
-      await ctx.answerCbQuery('❌ Xatolik yuz berdi.', { show_alert: true });
+      const draft = getGroupMatchDraftById(ctx.match[1]!);
+      await ctx.answerCbQuery(
+        mt(draft?.language ?? 'uz', 'matchGenericError'),
+        { show_alert: true },
+      );
     }
   });
 
@@ -348,7 +358,7 @@ export function registerMatchHandlers(bot: Telegraf<BotContext>): void {
         return;
       }
       if (!requireDraftOrganizer(ctx, draft)) {
-        await ctx.answerCbQuery('❌ Bu o\'yinni faqat tashkilotchi sozlay oladi.');
+        await ctx.answerCbQuery(mt(draft.language, 'matchOrganizerOnly'));
         return;
       }
 
@@ -357,8 +367,8 @@ export function registerMatchHandlers(bot: Telegraf<BotContext>): void {
       await editDraftMessage(
         ctx,
         draft,
-        'Nimani o\'zgartiramiz?',
-        groupEditMenuKeyboard(draft.id),
+        mt(draft.language, 'matchEditMenu'),
+        groupEditMenuKeyboard(draft),
       );
     } catch (err) {
       console.error(err);
@@ -374,7 +384,7 @@ export function registerMatchHandlers(bot: Telegraf<BotContext>): void {
         return;
       }
       if (!requireDraftOrganizer(ctx, draft)) {
-        await ctx.answerCbQuery('❌ Bu o\'yinni faqat tashkilotchi sozlay oladi.');
+        await ctx.answerCbQuery(mt(draft.language, 'matchOrganizerOnly'));
         return;
       }
 
@@ -383,8 +393,8 @@ export function registerMatchHandlers(bot: Telegraf<BotContext>): void {
       await editDraftMessage(
         ctx,
         draft,
-        formatEditDetailsPrompt(),
-        groupSetupCancelKeyboard(draft.id),
+        formatEditDetailsPrompt(draft.language),
+        groupSetupCancelKeyboard(draft),
       );
     } catch (err) {
       console.error(err);
@@ -400,7 +410,7 @@ export function registerMatchHandlers(bot: Telegraf<BotContext>): void {
         return;
       }
       if (!requireDraftOrganizer(ctx, draft)) {
-        await ctx.answerCbQuery('❌ Bu o\'yinni faqat tashkilotchi sozlay oladi.');
+        await ctx.answerCbQuery(mt(draft.language, 'matchOrganizerOnly'));
         return;
       }
 
@@ -410,7 +420,7 @@ export function registerMatchHandlers(bot: Telegraf<BotContext>): void {
         ctx,
         draft,
         formatCapacityStep(draft),
-        groupCapacityKeyboard(draft.id),
+        groupCapacityKeyboard(draft),
       );
     } catch (err) {
       console.error(err);
@@ -426,7 +436,7 @@ export function registerMatchHandlers(bot: Telegraf<BotContext>): void {
         return;
       }
       if (!requireDraftOrganizer(ctx, draft)) {
-        await ctx.answerCbQuery('❌ Bu o\'yinni faqat tashkilotchi sozlay oladi.');
+        await ctx.answerCbQuery(mt(draft.language, 'matchOrganizerOnly'));
         return;
       }
 
@@ -436,7 +446,7 @@ export function registerMatchHandlers(bot: Telegraf<BotContext>): void {
         ctx,
         draft,
         formatPreviewStep(draft),
-        groupPreviewKeyboard(draft.id),
+        groupPreviewKeyboard(draft),
       );
     } catch (err) {
       console.error(err);
@@ -452,13 +462,13 @@ export function registerMatchHandlers(bot: Telegraf<BotContext>): void {
         return;
       }
       if (!requireDraftOrganizer(ctx, draft)) {
-        await ctx.answerCbQuery('❌ Bu o\'yinni faqat tashkilotchi sozlay oladi.');
+        await ctx.answerCbQuery(mt(draft.language, 'matchOrganizerOnly'));
         return;
       }
 
       removeGroupMatchDraft(draft);
-      await ctx.answerCbQuery('Bekor qilindi.');
-      await editDraftMessage(ctx, draft, '❌ O\'yin sozlash bekor qilindi.');
+      await ctx.answerCbQuery(mt(draft.language, 'matchCancelled'));
+      await editDraftMessage(ctx, draft, mt(draft.language, 'matchSetupCancelled'));
     } catch (err) {
       console.error(err);
       await ctx.answerCbQuery().catch(() => {});
@@ -479,6 +489,7 @@ export function registerMatchHandlers(bot: Telegraf<BotContext>): void {
         ctx.from.first_name,
         ctx.from.last_name,
         ctx.from.username,
+        match.language,
       );
 
       const result = tryJoinMatch(match, {
@@ -489,21 +500,21 @@ export function registerMatchHandlers(bot: Telegraf<BotContext>): void {
 
       switch (result) {
         case 'already':
-          await ctx.answerCbQuery('✅ Siz allaqachon ro\'yxatdasiz.');
+          await ctx.answerCbQuery(mt(match.language, 'matchAlreadyJoined'));
           return;
         case 'full':
           await ctx.answerCbQuery(
-            `❌ Joy qolmagan — ${match.capacity} / ${match.capacity}`,
+            mt(match.language, 'matchFullCapacity', { capacity: match.capacity }),
           );
           return;
         case 'closed':
-          await ctx.answerCbQuery('🔒 Ro\'yxat yopildi.');
+          await ctx.answerCbQuery(mt(match.language, 'matchRosterClosedToast'));
           return;
         case 'locked':
-          await ctx.answerCbQuery('❌ Tarkib jamoalar uchun tayyorlanmoqda.');
+          await ctx.answerCbQuery(mt(match.language, 'matchPrepLocked'));
           return;
         case 'joined':
-          await ctx.answerCbQuery('✅ Ro\'yxatga qo\'shildingiz!');
+          await ctx.answerCbQuery(mt(match.language, 'matchJoined'));
           break;
       }
 
@@ -534,15 +545,15 @@ export function registerMatchHandlers(bot: Telegraf<BotContext>): void {
 
       const result = tryLeaveMatch(match, userId);
       if (result === 'not_joined') {
-        await ctx.answerCbQuery('Siz ro\'yxatda yo\'qsiz.');
+        await ctx.answerCbQuery(mt(match.language, 'matchNotOnRoster'));
         return;
       }
       if (result === 'locked') {
-        await ctx.answerCbQuery('❌ Tarkib jamoalar uchun tayyorlanmoqda.');
+        await ctx.answerCbQuery(mt(match.language, 'matchPrepLocked'));
         return;
       }
 
-      await ctx.answerCbQuery('Ro\'yxatdan chiqdingiz.');
+      await ctx.answerCbQuery(mt(match.language, 'matchLeft'));
 
       await editMatchMessage(
         ctx.telegram,

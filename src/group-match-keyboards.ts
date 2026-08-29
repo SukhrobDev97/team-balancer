@@ -1,13 +1,16 @@
 import { Markup } from 'telegraf';
 import { draftCallback } from './group-match-setup.js';
+import { mt } from './match-i18n.js';
+import { GroupMatchDraft } from './types.js';
 
-export function groupSetupCancelKeyboard(draftId: string) {
+export function groupSetupCancelKeyboard(draft: GroupMatchDraft) {
   return Markup.inlineKeyboard([
-    [Markup.button.callback('❌ Bekor qilish', draftCallback('mcc', draftId))],
+    [Markup.button.callback(mt(draft.language, 'matchCancel'), draftCallback('mcc', draft.id))],
   ]);
 }
 
-export function groupCapacityKeyboard(draftId: string) {
+export function groupCapacityKeyboard(draft: GroupMatchDraft) {
+  const draftId = draft.id;
   return Markup.inlineKeyboard([
     [
       Markup.button.callback('10', draftCallback('mc', draftId, '10')),
@@ -20,31 +23,33 @@ export function groupCapacityKeyboard(draftId: string) {
       Markup.button.callback('20', draftCallback('mc', draftId, '20')),
     ],
     [
-      Markup.button.callback('✏️ Boshqa', draftCallback('mco', draftId)),
-      Markup.button.callback('❌ Bekor qilish', draftCallback('mcc', draftId)),
+      Markup.button.callback(mt(draft.language, 'matchCustomCapacity'), draftCallback('mco', draftId)),
+      Markup.button.callback(mt(draft.language, 'matchCancel'), draftCallback('mcc', draftId)),
     ],
   ]);
 }
 
-export function groupPreviewKeyboard(draftId: string) {
+export function groupPreviewKeyboard(draft: GroupMatchDraft) {
+  const draftId = draft.id;
   return Markup.inlineKeyboard([
-    [Markup.button.callback('✅ O\'yinni ochish', draftCallback('mcf', draftId))],
+    [Markup.button.callback(mt(draft.language, 'matchOpenGame'), draftCallback('mcf', draftId))],
     [
-      Markup.button.callback('✏️ O\'zgartirish', draftCallback('mce', draftId)),
-      Markup.button.callback('❌ Bekor qilish', draftCallback('mcc', draftId)),
+      Markup.button.callback(mt(draft.language, 'matchEdit'), draftCallback('mce', draftId)),
+      Markup.button.callback(mt(draft.language, 'matchCancel'), draftCallback('mcc', draftId)),
     ],
   ]);
 }
 
-export function groupEditMenuKeyboard(draftId: string) {
+export function groupEditMenuKeyboard(draft: GroupMatchDraft) {
+  const draftId = draft.id;
   return Markup.inlineKeyboard([
     [
       Markup.button.callback(
-        '📅 Kun / 🕘 Vaqt / 📍 Joy',
+        mt(draft.language, 'matchEditDetailsMenu'),
         draftCallback('mced', draftId),
       ),
     ],
-    [Markup.button.callback('👥 O\'yinchi soni', draftCallback('mcec', draftId))],
-    [Markup.button.callback('⬅️ Orqaga', draftCallback('mcb', draftId))],
+    [Markup.button.callback(mt(draft.language, 'matchEditCapacityMenu'), draftCallback('mcec', draftId))],
+    [Markup.button.callback(mt(draft.language, 'matchBack'), draftCallback('mcb', draftId))],
   ]);
 }

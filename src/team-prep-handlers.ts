@@ -40,11 +40,9 @@ import {
 } from './team-prep-keyboards.js';
 import { PlayerTier } from './types.js';
 import { isMissingEditTargetError, matchTelegramExtra } from './utils.js';
+import { mt } from './match-i18n.js';
 
 type BotContext = Context;
-
-const ORGANIZER_ONLY_MSG =
-  'Bu amalni faqat o\'yin tashkilotchisi bajarishi mumkin.';
 
 function uid(ctx: BotContext): number | undefined {
   return ctx.from?.id;
@@ -65,7 +63,7 @@ async function requireOrganizer(
 ): Promise<boolean> {
   const userId = uid(ctx);
   if (!userId || !isOrganizer(match, userId)) {
-    await ctx.answerCbQuery(ORGANIZER_ONLY_MSG);
+    await ctx.answerCbQuery(mt(match.language, 'matchPrepOrganizerOnly'));
     return false;
   }
   return true;
@@ -99,7 +97,7 @@ async function showRatingSummary(
     ctx,
     match,
     formatRatingCompleteSummary(match),
-    ratingSummaryKeyboard(match.id),
+    ratingSummaryKeyboard(match),
   );
 }
 
@@ -111,7 +109,7 @@ async function showEditList(
   await editMatch(
     ctx,
     match,
-    formatEditRatingListPrompt(),
+    formatEditRatingListPrompt(match),
     ratingEditListKeyboard(match),
   );
 }
@@ -124,7 +122,7 @@ async function showTeamCount(
   await editMatch(
     ctx,
     match,
-    formatTeamCountPrompt(),
+    formatTeamCountPrompt(match),
     teamCountKeyboard(match),
   );
 }
@@ -138,8 +136,8 @@ async function showTeamPreview(
   await editMatch(
     ctx,
     match,
-    formatGroupTeamPreview(teams),
-    teamPreviewKeyboard(match.id),
+    formatGroupTeamPreview(match, teams),
+    teamPreviewKeyboard(match),
   );
 }
 
@@ -168,8 +166,8 @@ async function renderCurrentPrepView(
       await editMatch(
         ctx,
         match,
-        formatEditRatingTierPrompt(participant.displayName),
-        ratingEditTierKeyboard(match.id, participant.telegramId),
+        formatEditRatingTierPrompt(match, participant.displayName),
+        ratingEditTierKeyboard(match.id, participant.telegramId, match.language),
       );
       break;
     }
@@ -200,11 +198,11 @@ export function registerTeamPrepHandlers(bot: Telegraf<BotContext>): void {
       if (!(await requireOrganizer(ctx, match))) return;
 
       if (!closeMatchRoster(match, userId)) {
-        await ctx.answerCbQuery('❌ Ro\'yxatni yopib bo\'lmaydi.');
+        await ctx.answerCbQuery(mt(match.language, 'matchCloseRosterFail'));
         return;
       }
 
-      await ctx.answerCbQuery('🔒 Ro\'yxat yopildi.');
+      await ctx.answerCbQuery(mt(match.language, 'matchCloseRosterDone'));
       await editMatch(ctx, match, formatMatchCard(match), matchCardKeyboard(match));
     } catch (err) {
       console.error(err);
@@ -224,13 +222,13 @@ export function registerTeamPrepHandlers(bot: Telegraf<BotContext>): void {
       if (!(await requireOrganizer(ctx, match))) return;
 
       if (isPrepActive(match)) {
-        await ctx.answerCbQuery('⚙️ Jamoa tayyorlash allaqachon boshlangan.');
+        await ctx.answerCbQuery(mt(match.language, 'matchPrepAlreadyStarted'));
         await renderCurrentPrepView(ctx, match);
         return;
       }
 
       if (match.teamsPublishedAt != null) {
-        await ctx.answerCbQuery('✅ Jamoalar allaqachon tayyorlangan.');
+        await ctx.answerCbQuery(mt(match.language, 'matchTeamsAlreadyPublished'));
         return;
       }
 
@@ -238,14 +236,14 @@ export function registerTeamPrepHandlers(bot: Telegraf<BotContext>): void {
       if (!prepCheck.ok) {
         const msg =
           prepCheck.reason === 'too_few'
-            ? '❌ Jamoa tuzish uchun kamida 3 ta o\'yinchi kerak.'
-            : '❌ Avval ro\'yxatni yoping yoki tarkib to\'lsin.';
+            ? mt(match.language, 'matchPrepTooFew')
+            : mt(match.language, 'matchPrepWrongStatus');
         await ctx.answerCbQuery(msg);
         return;
       }
 
       beginTeamPreparation(match);
-      await ctx.answerCbQuery('⚙️ Jamoa tayyorlash boshlandi.');
+      await ctx.answerCbQuery(mt(match.language, 'matchPrepStarted'));
       await showRatingStep(ctx, match);
     } catch (err) {
       console.error(err);
@@ -267,18 +265,20 @@ export function registerTeamPrepHandlers(bot: Telegraf<BotContext>): void {
       }
       if (!(await requireOrganizer(ctx, match))) return;
       if (!isPrepActive(match) || !isExpectedPrepView(match, 'RATING')) {
-        await ctx.answerCbQuery('❌ Bu bosqich endi faol emas.');
+        await ctx.answerCbQuery(mt(match.language, 'matchStaleStep'));
         return;
       }
 
       const participant = match.participants.find((p) => p.telegramId === telegramId);
       if (!participant) {
-        await ctx.answerCbQuery('❌ O\'yinchi topilmadi.');
+        await ctx.answerCbQuery(mt(match.language, 'matchPlayerNotFound'));
         return;
       }
 
       setRating(match, telegramId, tier);
-      await ctx.answerCbQuery(`✅ ${participant.displayName}: ${tier}`);
+      await ctx.answerCbQuery(
+        mt(match.language, 'matchRatingSaved', { name: participant.displayName, tier }),
+      );
 
       if (allParticipantsRated(match)) {
         await showRatingSummary(ctx, match);
@@ -302,11 +302,11 @@ export function registerTeamPrepHandlers(bot: Telegraf<BotContext>): void {
       }
       if (!(await requireOrganizer(ctx, match))) return;
       if (!isPrepActive(match)) {
-        await ctx.answerCbQuery('❌ Bu bosqich endi faol emas.');
+        await ctx.answerCbQuery(mt(match.language, 'matchStaleStep'));
         return;
       }
       if (!allParticipantsRated(match)) {
-        await ctx.answerCbQuery('❌ Avval barcha o\'yinchilarni baholang.');
+        await ctx.answerCbQuery(mt(match.language, 'matchRateAllFirst'));
         return;
       }
 
@@ -330,7 +330,7 @@ export function registerTeamPrepHandlers(bot: Telegraf<BotContext>): void {
       }
       if (!(await requireOrganizer(ctx, match))) return;
       if (!isPrepActive(match) || !isExpectedPrepView(match, 'EDIT_LIST')) {
-        await ctx.answerCbQuery('❌ Bu bosqich endi faol emas.');
+        await ctx.answerCbQuery(mt(match.language, 'matchStaleStep'));
         return;
       }
 
@@ -338,7 +338,7 @@ export function registerTeamPrepHandlers(bot: Telegraf<BotContext>): void {
         (p) => p.telegramId === telegramId,
       );
       if (!participant) {
-        await ctx.answerCbQuery('❌ O\'yinchi topilmadi.');
+        await ctx.answerCbQuery(mt(match.language, 'matchPlayerNotFound'));
         return;
       }
 
@@ -349,8 +349,8 @@ export function registerTeamPrepHandlers(bot: Telegraf<BotContext>): void {
       await editMatch(
         ctx,
         match,
-        formatEditRatingTierPrompt(participant.displayName),
-        ratingEditTierKeyboard(matchId, telegramId),
+        formatEditRatingTierPrompt(match, participant.displayName),
+        ratingEditTierKeyboard(matchId, telegramId, match.language),
       );
     } catch (err) {
       console.error(err);
@@ -371,7 +371,7 @@ export function registerTeamPrepHandlers(bot: Telegraf<BotContext>): void {
       }
       if (!(await requireOrganizer(ctx, match))) return;
       if (!isPrepActive(match) || !isExpectedPrepView(match, 'EDIT_TIER')) {
-        await ctx.answerCbQuery('❌ Bu bosqich endi faol emas.');
+        await ctx.answerCbQuery(mt(match.language, 'matchStaleStep'));
         return;
       }
 
@@ -379,7 +379,7 @@ export function registerTeamPrepHandlers(bot: Telegraf<BotContext>): void {
         (p) => p.telegramId === telegramId,
       );
       if (!participant) {
-        await ctx.answerCbQuery('❌ O\'yinchi topilmadi.');
+        await ctx.answerCbQuery(mt(match.language, 'matchPlayerNotFound'));
         return;
       }
 
@@ -388,8 +388,15 @@ export function registerTeamPrepHandlers(bot: Telegraf<BotContext>): void {
 
       await ctx.answerCbQuery(
         oldTier
-          ? `✅ ${participant.displayName}: ${oldTier} → ${tier}`
-          : `✅ ${participant.displayName}: ${tier}`,
+          ? mt(match.language, 'matchRatingChanged', {
+              name: participant.displayName,
+              from: oldTier,
+              to: tier,
+            })
+          : mt(match.language, 'matchRatingSaved', {
+              name: participant.displayName,
+              tier,
+            }),
       );
 
       match.teamPreparation!.editingTelegramId = undefined;
@@ -434,12 +441,12 @@ export function registerTeamPrepHandlers(bot: Telegraf<BotContext>): void {
       }
       if (!(await requireOrganizer(ctx, match))) return;
       if (!isPrepActive(match) || !isExpectedPrepView(match, 'SUMMARY')) {
-        await ctx.answerCbQuery('❌ Bu bosqich endi faol emas.');
+        await ctx.answerCbQuery(mt(match.language, 'matchStaleStep'));
         return;
       }
 
       if (!allParticipantsRated(match)) {
-        await ctx.answerCbQuery('❌ Avval barcha o\'yinchilarni baholang.');
+        await ctx.answerCbQuery(mt(match.language, 'matchRateAllFirst'));
         return;
       }
 
@@ -463,19 +470,19 @@ export function registerTeamPrepHandlers(bot: Telegraf<BotContext>): void {
       }
       if (!(await requireOrganizer(ctx, match))) return;
       if (!isPrepActive(match) || !isExpectedPrepView(match, 'TEAM_COUNT')) {
-        await ctx.answerCbQuery('❌ Bu bosqich endi faol emas.');
+        await ctx.answerCbQuery(mt(match.language, 'matchStaleStep'));
         return;
       }
 
       if (!allParticipantsRated(match)) {
-        await ctx.answerCbQuery('❌ Avval barcha o\'yinchilarni baholang.');
+        await ctx.answerCbQuery(mt(match.language, 'matchRateAllFirst'));
         return;
       }
 
       match.teamPreparation!.teamCount = teamCount;
       const teams = generateTeamsForMatch(match);
       if (!teams) {
-        await ctx.answerCbQuery('❌ Bu jamoa soni mos emas.');
+        await ctx.answerCbQuery(mt(match.language, 'matchInvalidTeamCount'));
         return;
       }
 
@@ -498,13 +505,13 @@ export function registerTeamPrepHandlers(bot: Telegraf<BotContext>): void {
       }
       if (!(await requireOrganizer(ctx, match))) return;
       if (!isPrepActive(match) || !isExpectedPrepView(match, 'PREVIEW')) {
-        await ctx.answerCbQuery('❌ Bu bosqich endi faol emas.');
+        await ctx.answerCbQuery(mt(match.language, 'matchStaleStep'));
         return;
       }
 
       const teams = generateTeamsForMatch(match);
       if (!teams) {
-        await ctx.answerCbQuery('❌ Avval jamoalarni tuzing.');
+        await ctx.answerCbQuery(mt(match.language, 'matchBuildTeamsFirst'));
         return;
       }
 
@@ -532,20 +539,20 @@ export function registerTeamPrepHandlers(bot: Telegraf<BotContext>): void {
       }
 
       if (match.teamsPublishedAt != null) {
-        await ctx.answerCbQuery('✅ Jamoalar allaqachon e\'lon qilingan.');
+        await ctx.answerCbQuery(mt(match.language, 'matchTeamsAlreadyPublishedToast'));
         return;
       }
 
       const teams = getGeneratedTeams(match);
       if (!teams) {
-        await ctx.answerCbQuery('❌ Avval jamoalarni tuzing.');
+        await ctx.answerCbQuery(mt(match.language, 'matchBuildTeamsFirst'));
         return;
       }
 
-      await ctx.answerCbQuery('✅ Jamoalar e\'lon qilindi.');
+      await ctx.answerCbQuery(mt(match.language, 'matchTeamsPublished'));
 
-      const text = formatPublicTeamResult(teams);
-      const keyboard = publishedTeamsKeyboard(matchId);
+      const text = formatPublicTeamResult(match, teams);
+      const keyboard = publishedTeamsKeyboard(match);
       const telegramExtra = matchTelegramExtra(match, keyboard);
 
       if (match.teamsMessageId) {
@@ -580,7 +587,8 @@ export function registerTeamPrepHandlers(bot: Telegraf<BotContext>): void {
       );
     } catch (err) {
       console.error(err);
-      await ctx.answerCbQuery('❌ Xatolik yuz berdi.').catch(() => {});
+      const failed = getMatch(ctx.match[1]!);
+      await ctx.answerCbQuery(mt(failed?.language ?? 'uz', 'matchGenericError')).catch(() => {});
     }
   });
 
@@ -600,7 +608,7 @@ export function registerTeamPrepHandlers(bot: Telegraf<BotContext>): void {
       }
 
       match.teamPreparation = undefined;
-      await ctx.answerCbQuery('Bekor qilindi.');
+      await ctx.answerCbQuery(mt(match.language, 'matchCancelled'));
       await editMatch(ctx, match, formatMatchCard(match), matchCardKeyboard(match));
     } catch (err) {
       console.error(err);

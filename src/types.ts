@@ -113,6 +113,7 @@ export interface MatchSession {
   chatId: number;
   messageId: number;
   messageThreadId?: number;
+  language: Language;
   dateLabel: string;
   time: string;
   location: string;
@@ -150,6 +151,7 @@ export interface GroupMatchDraft {
   organizerTelegramId: number;
   messageId: number;
   messageThreadId?: number;
+  language: Language;
   step: GroupMatchDraftStep;
   dateLabel?: string;
   time?: string;

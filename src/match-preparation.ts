@@ -13,6 +13,7 @@ import {
 } from './types.js';
 import { isOrganizer } from './match.js';
 import { validTeamCounts } from './utils.js';
+import { mt } from './match-i18n.js';
 
 export const MIN_TEAM_PREP_PLAYERS = 3;
 export const TEAM_EMOJIS = ['🔵', '🔴', '🟢', '🟡', '🟣'];
@@ -159,10 +160,10 @@ export function getGeneratedTeams(match: MatchSession): Team[] | undefined {
   return match.teamPreparation?.generatedTeams;
 }
 
-export function formatBalanceLabel(diff: number): string {
-  if (diff <= 1) return "⚖️ Balans: A'lo";
-  if (diff === 2) return '⚖️ Balans: Yaxshi';
-  return '⚖️ Balans: Imkon qadar tenglashtirildi';
+export function formatBalanceLabel(lang: MatchSession['language'], diff: number): string {
+  if (diff <= 1) return mt(lang, 'matchBalanceExcellent');
+  if (diff === 2) return mt(lang, 'matchBalanceGood');
+  return mt(lang, 'matchBalanceFair');
 }
 
 export function teamSkillDiff(teams: Team[]): number {
@@ -177,76 +178,83 @@ export function formatRatingPrompt(
   const total = match.participants.length;
   const order = sortedParticipants(match);
   const index = order.findIndex((p) => p.telegramId === participant.telegramId);
+  const lang = match.language;
   return [
-    '⚙️ Jamoalarni tayyorlash',
+    mt(lang, 'matchPrepTitle'),
     '',
-    `${index + 1} / ${total}`,
+    mt(lang, 'matchRatingProgress', { current: index + 1, total }),
     '',
     `👤 ${participant.displayName}`,
     '',
-    'Darajasini tanlang:',
+    mt(lang, 'matchRatePrompt'),
   ].join('\n');
 }
 
 export function formatRatingCompleteSummary(match: MatchSession): string {
+  const lang = match.language;
   return [
-    '✅ Barcha o\'yinchilar baholandi',
+    mt(lang, 'matchAllRated'),
     '',
-    `👥 ${match.participants.length} ta o'yinchi`,
+    mt(lang, 'matchPreviewPlayers', { count: match.participants.length }),
   ].join('\n');
 }
 
-export function formatEditRatingListPrompt(): string {
-  return '✏️ Kimning bahosini o\'zgartiramiz?';
+export function formatEditRatingListPrompt(match: MatchSession): string {
+  return mt(match.language, 'matchEditRatingList');
 }
 
-export function formatEditRatingTierPrompt(displayName: string): string {
-  return [`👤 ${displayName}`, '', 'Yangi darajani tanlang:'].join('\n');
+export function formatEditRatingTierPrompt(match: MatchSession, displayName: string): string {
+  return [`👤 ${displayName}`, '', mt(match.language, 'matchEditRatingTier')].join('\n');
 }
 
-export function formatTeamCountPrompt(): string {
-  return '⚽ Nechta jamoa qilamiz?';
+export function formatTeamCountPrompt(match: MatchSession): string {
+  return mt(match.language, 'matchTeamCountQuestion');
 }
 
-export function formatGroupTeamPreview(teams: Team[]): string {
+export function formatGroupTeamPreview(match: MatchSession, teams: Team[]): string {
+  const lang = match.language;
   const diff = teamSkillDiff(teams);
   const blocks = teams.map((team, i) => {
     const emoji = TEAM_EMOJIS[i] ?? '⚪';
     const lines = team.players.map((p) => p.name);
-    return [`${emoji} ${i + 1}-jamoa`, ...lines].join('\n');
+    return [`${emoji} ${mt(lang, 'matchTeamPreviewLabel', { index: i + 1 })}`, ...lines].join('\n');
   });
   return [
-    '⚽ Jamoalar tayyor',
+    mt(lang, 'matchTeamsReadyPreview'),
     '',
     ...blocks,
     '',
-    formatBalanceLabel(diff),
+    formatBalanceLabel(lang, diff),
   ].join('\n');
 }
 
-export function formatPublicTeamResult(teams: Team[]): string {
+export function formatPublicTeamResult(match: MatchSession, teams: Team[]): string {
+  const lang = match.language;
   const diff = teamSkillDiff(teams);
   const blocks = teams.map((team, i) => {
     const emoji = TEAM_EMOJIS[i] ?? '⚪';
     const lines = team.players.map((p) => p.name);
-    return [`${emoji} JAMOA ${i + 1}`, ...lines].join('\n');
+    return [`${emoji} ${mt(lang, 'matchTeamPublishLabel', { index: i + 1 })}`, ...lines].join('\n');
   });
   return [
-    '⚽ JAMOALAR TAYYOR',
+    mt(lang, 'matchTeamsReadyPublish'),
     '',
     ...blocks,
     '',
-    formatBalanceLabel(diff),
+    formatBalanceLabel(lang, diff),
   ].join('\n');
 }
 
 export function formatPrepCompleteCard(match: MatchSession): string {
   const teamCount = match.teamPreparation?.teamCount ?? 0;
+  const lang = match.language;
   return [
-    '✅ Jamoalar tayyorlandi',
+    mt(lang, 'matchTeamsPublishedCard'),
     '',
-    `👥 ${match.participants.length} ta o'yinchi`,
-    `⚽ ${teamCount} ta jamoa`,
+    mt(lang, 'matchPrepComplete', {
+      players: match.participants.length,
+      teams: teamCount,
+    }),
   ].join('\n');
 }
 
