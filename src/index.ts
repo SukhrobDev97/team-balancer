@@ -44,11 +44,13 @@ import {
   PlayerTier,
 } from './types.js';
 import {
+  handleExternalRsvpStart,
   handleGroupMatchSetupText,
   registerMatchHandlers,
 } from './match-handlers.js';
 import { registerTeamPrepHandlers } from './team-prep-handlers.js';
 import { registerMotmHandlers } from './motm-handlers.js';
+import { initBotUsernameFromEnv, resolveBotUsernameAtStartup } from './bot-config.js';
 import { mt } from './match-i18n.js';
 import { getUserLanguage, setUserLanguage } from './user-language.js';
 import {
@@ -63,6 +65,7 @@ import {
 } from './utils.js';
 
 config();
+initBotUsernameFromEnv();
 
 const TEAM_EMOJIS = ['🔵', '🔴', '🟢', '🟡', '🟣'];
 const sessions = new Map<number, GameSession>();
@@ -274,6 +277,12 @@ bot.start(async (ctx) => {
   const payload = ctx.startPayload;
   if (payload?.startsWith('teams_')) {
     await ctx.reply(mt(getUserLanguage(userId), 'matchTeamsDeepLinkDeprecated'));
+    return;
+  }
+
+  if (payload?.startsWith('join_')) {
+    const matchId = payload.slice('join_'.length);
+    await handleExternalRsvpStart(ctx, userId, matchId);
     return;
   }
 
@@ -905,6 +914,7 @@ bot.on('text', async (ctx) => {
 });
 
 bot.launch().then(async () => {
+  await resolveBotUsernameAtStartup(() => bot.telegram.getMe());
   console.log('Bot started');
 });
 

@@ -44,11 +44,17 @@ import { MAX_MATCH_CAPACITY, MIN_MATCH_CAPACITY } from './types.js';
 import {
   matchCardKeyboard,
   matchRosterKeyboard,
+  externalRsvpKeyboard,
 } from './match-keyboards.js';
+import {
+  formatExternalRsvpCard,
+  isValidJoinMatchId,
+} from './external-rsvp.js';
 import {
   getMessageThreadId,
   isGroupChatType,
   resolveMessageSenderId,
+  safeEditMessage,
 } from './utils.js';
 import { mt } from './match-i18n.js';
 import { getUserLanguage } from './user-language.js';
@@ -65,6 +71,60 @@ function isGroupChat(ctx: BotContext): boolean {
 
 function isPrivateChat(ctx: BotContext): boolean {
   return ctx.chat?.type === 'private';
+}
+
+async function refreshGroupMatchCard(
+  ctx: BotContext,
+  match: NonNullable<ReturnType<typeof getMatch>>,
+): Promise<void> {
+  await editMatchMessage(
+    ctx.telegram,
+    match,
+    formatMatchCard(match),
+    matchCardKeyboard(match),
+  );
+}
+
+async function refreshPrivateRsvpCard(
+  ctx: BotContext,
+  match: NonNullable<ReturnType<typeof getMatch>>,
+  userId: number,
+): Promise<void> {
+  if (!isPrivateChat(ctx)) return;
+  await safeEditMessage(
+    ctx,
+    formatExternalRsvpCard(match, userId),
+    externalRsvpKeyboard(match, userId),
+  );
+}
+
+export async function handleExternalRsvpStart(
+  ctx: BotContext,
+  userId: number,
+  matchId: string,
+): Promise<void> {
+  const lang = getUserLanguage(userId);
+
+  if (!isPrivateChat(ctx)) {
+    await ctx.reply(mt(lang, 'matchExternalPrivateOnly'));
+    return;
+  }
+
+  if (!isValidJoinMatchId(matchId)) {
+    await ctx.reply(mt(lang, 'matchExternalNotFound'));
+    return;
+  }
+
+  const match = getMatch(matchId);
+  if (!match) {
+    await ctx.reply(mt(lang, 'matchExternalNotFound'));
+    return;
+  }
+
+  await ctx.reply(
+    formatExternalRsvpCard(match, userId),
+    externalRsvpKeyboard(match, userId),
+  );
 }
 
 function createMatchInstructionsText(userId: number): string {
@@ -501,29 +561,29 @@ export function registerMatchHandlers(bot: Telegraf<BotContext>): void {
       switch (result) {
         case 'already':
           await ctx.answerCbQuery(mt(match.language, 'matchAlreadyJoined'));
-          return;
+          break;
         case 'full':
           await ctx.answerCbQuery(
             mt(match.language, 'matchFullCapacity', { capacity: match.capacity }),
           );
-          return;
+          break;
         case 'closed':
           await ctx.answerCbQuery(mt(match.language, 'matchRosterClosedToast'));
-          return;
+          break;
         case 'locked':
           await ctx.answerCbQuery(mt(match.language, 'matchPrepLocked'));
-          return;
+          break;
         case 'joined':
           await ctx.answerCbQuery(mt(match.language, 'matchJoined'));
           break;
       }
 
-      await editMatchMessage(
-        ctx.telegram,
-        match,
-        formatMatchCard(match),
-        matchCardKeyboard(match),
-      );
+      if (result === 'joined' || result === 'already') {
+        await refreshGroupMatchCard(ctx, match);
+        await refreshPrivateRsvpCard(ctx, match, userId);
+      } else if (isPrivateChat(ctx)) {
+        await refreshPrivateRsvpCard(ctx, match, userId);
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (!msg.includes('message is not modified')) {
@@ -546,21 +606,23 @@ export function registerMatchHandlers(bot: Telegraf<BotContext>): void {
       const result = tryLeaveMatch(match, userId);
       if (result === 'not_joined') {
         await ctx.answerCbQuery(mt(match.language, 'matchNotOnRoster'));
+        if (isPrivateChat(ctx)) {
+          await refreshPrivateRsvpCard(ctx, match, userId);
+        }
         return;
       }
       if (result === 'locked') {
         await ctx.answerCbQuery(mt(match.language, 'matchPrepLocked'));
+        if (isPrivateChat(ctx)) {
+          await refreshPrivateRsvpCard(ctx, match, userId);
+        }
         return;
       }
 
       await ctx.answerCbQuery(mt(match.language, 'matchLeft'));
 
-      await editMatchMessage(
-        ctx.telegram,
-        match,
-        formatMatchCard(match),
-        matchCardKeyboard(match),
-      );
+      await refreshGroupMatchCard(ctx, match);
+      await refreshPrivateRsvpCard(ctx, match, userId);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (!msg.includes('message is not modified')) {

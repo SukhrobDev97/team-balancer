@@ -97,6 +97,16 @@ type MatchStaticKey = {
   matchTeamsDeepLinkDeprecated: never;
   matchPrepOrganizerOnly: never;
   matchDefaultPlayer: never;
+  matchShare: never;
+  matchShareInviteLine: never;
+  matchExternalJoined: never;
+  matchExternalNotJoined: never;
+  matchExternalFullNoSpot: never;
+  matchExternalClosed: never;
+  matchExternalCancelled: never;
+  matchExternalPrepLocked: never;
+  matchExternalNotFound: never;
+  matchExternalPrivateOnly: never;
 };
 
 export type MatchMessageKey = keyof MatchStaticKey;
@@ -190,6 +200,16 @@ const uz: MatchLocaleMessages = {
   matchTeamsDeepLinkDeprecated: '❌ Jamoa tayyorlash endi guruh ichida amalga oshiriladi.',
   matchPrepOrganizerOnly: 'Bu amalni faqat o\'yin tashkilotchisi bajarishi mumkin.',
   matchDefaultPlayer: "O'yinchi",
+  matchShare: '📤 Ulashish',
+  matchShareInviteLine: '⚽ O\'yinga qo\'shilish:',
+  matchExternalJoined: '✅ Siz ro\'yxatdasiz',
+  matchExternalNotJoined: 'ℹ️ Siz hali ro\'yxatda emassiz',
+  matchExternalFullNoSpot: '⛔ Joy qolmadi',
+  matchExternalClosed: '🔒 Ro\'yxat yopildi',
+  matchExternalCancelled: '❌ O\'yin bekor qilingan',
+  matchExternalPrepLocked: '🔒 Tarkib qulflangan',
+  matchExternalNotFound: '❌ O\'yin topilmadi yoki havola eskirgan.',
+  matchExternalPrivateOnly: '❌ Bu havola faqat bot bilan shaxsiy chatda ishlaydi.',
   matchFullCapacity: ({ capacity }) => `❌ Joy qolmagan — ${capacity} / ${capacity}`,
   matchPreviewPlayers: ({ count }) => `👥 ${count} ta o'yinchi`,
   matchRatingProgress: ({ current, total }) => `${current} / ${total}`,
@@ -285,6 +305,16 @@ const ru: MatchLocaleMessages = {
   matchTeamsDeepLinkDeprecated: '❌ Подготовка команд теперь в группе.',
   matchPrepOrganizerOnly: 'Это действие доступно только организатору.',
   matchDefaultPlayer: 'Игрок',
+  matchShare: '📤 Поделиться',
+  matchShareInviteLine: '⚽ Присоединиться к игре:',
+  matchExternalJoined: '✅ Вы в списке',
+  matchExternalNotJoined: 'ℹ️ Вы ещё не в списке',
+  matchExternalFullNoSpot: '⛔ Мест нет',
+  matchExternalClosed: '🔒 Список закрыт',
+  matchExternalCancelled: '❌ Игра отменена',
+  matchExternalPrepLocked: '🔒 Состав заблокирован',
+  matchExternalNotFound: '❌ Игра не найдена или ссылка устарела.',
+  matchExternalPrivateOnly: '❌ Ссылка работает только в личном чате с ботом.',
   matchCountLine: ({ current, capacity }) => `👥 ${current} / ${capacity}`,
   matchFullCapacity: ({ capacity }) => `❌ Мест нет — ${capacity} / ${capacity}`,
   matchPreviewPlayers: ({ count }) => `👥 ${count} игроков`,
@@ -380,6 +410,16 @@ const en: MatchLocaleMessages = {
   matchTeamsDeepLinkDeprecated: '❌ Team prep now happens inside the group.',
   matchPrepOrganizerOnly: 'Only the match organizer can do this.',
   matchDefaultPlayer: 'Player',
+  matchShare: '📤 Share',
+  matchShareInviteLine: '⚽ Join the match:',
+  matchExternalJoined: '✅ You\'re on the list',
+  matchExternalNotJoined: 'ℹ️ You\'re not on the list yet',
+  matchExternalFullNoSpot: '⛔ No spots left',
+  matchExternalClosed: '🔒 Roster closed',
+  matchExternalCancelled: '❌ Match cancelled',
+  matchExternalPrepLocked: '🔒 Roster locked',
+  matchExternalNotFound: '❌ Match not found or link expired.',
+  matchExternalPrivateOnly: '❌ This link only works in a private chat with the bot.',
   matchCountLine: ({ current, capacity }) => `👥 ${current} / ${capacity}`,
   matchFullCapacity: ({ capacity }) => `❌ Full — ${capacity} / ${capacity}`,
   matchPreviewPlayers: ({ count }) => `👥 ${count} players`,
