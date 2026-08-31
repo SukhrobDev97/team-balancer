@@ -1,6 +1,10 @@
 import { Markup } from 'telegraf';
 import { MatchSession } from './types.js';
-import { canPrepareTeams, matchCallbackData } from './match.js';
+import {
+  canPrepareTeams,
+  matchCallbackData,
+  shouldShowReopenRosterButton,
+} from './match.js';
 import { isPrepActive } from './match-preparation.js';
 import { mt } from './match-i18n.js';
 import {
@@ -47,6 +51,15 @@ export function matchCardKeyboard(match: MatchSession) {
       Markup.button.callback(
         mt(lang, 'matchCloseRoster'),
         matchCallbackData('mcl', match.id),
+      ),
+    ]);
+  }
+
+  if (shouldShowReopenRosterButton(match)) {
+    rows.push([
+      Markup.button.callback(
+        mt(lang, 'matchReopenRoster'),
+        matchCallbackData('mro', match.id),
       ),
     ]);
   }

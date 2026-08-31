@@ -25,6 +25,7 @@ import {
   editMatchMessage,
   getMatch,
   isOrganizer,
+  reopenMatchRoster,
 } from './match.js';
 import {
   matchCardKeyboard,
@@ -203,7 +204,41 @@ export function registerTeamPrepHandlers(bot: Telegraf<BotContext>): void {
       }
 
       await ctx.answerCbQuery(mt(match.language, 'matchCloseRosterDone'));
-      await editMatch(ctx, match, formatMatchCard(match), matchCardKeyboard(match));
+      await editMatch(
+        ctx,
+        match,
+        formatMatchCard(match),
+        matchCardKeyboard(match),
+      );
+    } catch (err) {
+      console.error(err);
+      await ctx.answerCbQuery().catch(() => {});
+    }
+  });
+
+  bot.action(/^mro:(.+)$/, async (ctx) => {
+    try {
+      const matchId = ctx.match[1]!;
+      const match = getMatch(matchId);
+      const userId = uid(ctx);
+      if (!match || !userId) {
+        await ctx.answerCbQuery();
+        return;
+      }
+
+      const result = reopenMatchRoster(match);
+      if (result !== 'reopened') {
+        await ctx.answerCbQuery(mt(match.language, 'matchReopenRosterFail'));
+        return;
+      }
+
+      await ctx.answerCbQuery(mt(match.language, 'matchReopenRosterDone'));
+      await editMatch(
+        ctx,
+        match,
+        formatMatchCard(match),
+        matchCardKeyboard(match),
+      );
     } catch (err) {
       console.error(err);
       await ctx.answerCbQuery().catch(() => {});

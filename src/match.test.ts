@@ -2,7 +2,9 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   cleanupStaleMatches,
+  closeMatchRoster,
   createMatchSession,
+  editMatchMessage,
   formatMatchCard,
   generateMatchId,
   isCallbackDataSafe,
@@ -13,11 +15,16 @@ import {
   matchCallbackData,
   matches,
   participantDisplayName,
+  reopenMatchRoster,
+  shouldShowReopenRosterButton,
   tryJoinMatch,
   tryLeaveMatch,
 } from './match.js';
 import { GroupMatchDraft, MatchSession } from './types.js';
-import { shouldHandlePrivateGameText } from './utils.js';
+import { matchTelegramExtra, shouldHandlePrivateGameText } from './utils.js';
+import { matchCardKeyboard } from './match-keyboards.js';
+import { canShowShareButton } from './external-rsvp.js';
+import { canStartTeamPreparation } from './match-preparation.js';
 
 function emptyMatch(overrides: Partial<MatchSession> = {}): MatchSession {
   return {
@@ -241,5 +248,173 @@ describe('stale match cleanup', () => {
     matches.set(old.id, old);
     cleanupStaleMatches(Number.MAX_SAFE_INTEGER);
     assert.equal(matches.has(old.id), false);
+  });
+});
+
+function flatKeyboardButtons(
+  keyboard: ReturnType<typeof matchCardKeyboard>,
+): { text?: string; callback_data?: string; url?: string }[] {
+  return keyboard.reply_markup.inline_keyboard.flat();
+}
+
+describe('roster reopen', () => {
+  it('organizer can reopen CLOSED roster to OPEN when below capacity', () => {
+    const match = emptyMatch({ status: 'CLOSED', capacity: 10 });
+    match.participants.push({ telegramId: 1, displayName: 'A', joinedAt: 1 });
+    assert.equal(reopenMatchRoster(match), 'reopened');
+    assert.equal(match.status, 'OPEN');
+  });
+
+  it('non-organizer can reopen CLOSED roster', () => {
+    const match = emptyMatch({ status: 'CLOSED', capacity: 10 });
+    assert.equal(reopenMatchRoster(match), 'reopened');
+    assert.equal(match.status, 'OPEN');
+  });
+
+  it('arbitrary group user can reopen CLOSED roster', () => {
+    const match = emptyMatch({ status: 'CLOSED', capacity: 10 });
+    match.participants.push({ telegramId: 777, displayName: 'Member', joinedAt: 1 });
+    assert.equal(reopenMatchRoster(match), 'reopened');
+    assert.equal(match.status, 'OPEN');
+  });
+
+  it('reopens CLOSED roster to FULL when already at capacity', () => {
+    const match = emptyMatch({ status: 'CLOSED', capacity: 2 });
+    match.participants.push(
+      { telegramId: 1, displayName: 'A', joinedAt: 1 },
+      { telegramId: 2, displayName: 'B', joinedAt: 2 },
+    );
+    assert.equal(reopenMatchRoster(match), 'reopened');
+    assert.equal(match.status, 'FULL');
+  });
+
+  it('rejects CANCELLED reopen', () => {
+    const match = emptyMatch({ status: 'CANCELLED' });
+    assert.equal(reopenMatchRoster(match), 'cancelled');
+  });
+
+  it('rejects locked team-prep reopen', () => {
+    const match = emptyMatch({
+      status: 'CLOSED',
+      teamPreparation: { locked: true, ratings: {} },
+    });
+    assert.equal(reopenMatchRoster(match), 'locked');
+  });
+
+  it('shows reopen button on CLOSED unlocked match for everyone', () => {
+    const match = emptyMatch({ status: 'CLOSED' });
+    assert.equal(shouldShowReopenRosterButton(match), true);
+    const buttons = flatKeyboardButtons(matchCardKeyboard(match));
+    assert.ok(buttons.some((b) => b.callback_data?.startsWith('mro:')));
+  });
+
+  it('hides reopen button after team prep locked', () => {
+    const match = emptyMatch({
+      status: 'CLOSED',
+      teamPreparation: { locked: true, ratings: {} },
+    });
+    assert.equal(shouldShowReopenRosterButton(match), false);
+  });
+
+  it('allows attendance join after reopen', () => {
+    const match = emptyMatch({ status: 'CLOSED', capacity: 10 });
+    match.participants.push({ telegramId: 1, displayName: 'A', joinedAt: 1 });
+    reopenMatchRoster(match);
+    assert.equal(
+      tryJoinMatch(match, { telegramId: 2, displayName: 'B' }),
+      'joined',
+    );
+  });
+
+  it('returns share button after reopen when eligible', () => {
+    const match = emptyMatch({ status: 'CLOSED', capacity: 10 });
+    reopenMatchRoster(match);
+    assert.equal(canShowShareButton(match), true);
+    const buttons = flatKeyboardButtons(matchCardKeyboard(match));
+    assert.ok(buttons.some((b) => b.callback_data?.startsWith('mj:')));
+  });
+
+  it('preserves forum topic on reopen card edit', async () => {
+    const match = emptyMatch({ status: 'CLOSED', messageThreadId: 888 });
+    reopenMatchRoster(match);
+    const edits: object[] = [];
+    await editMatchMessage(
+      {
+        editMessageText: async (
+          _chatId: number,
+          _messageId: number,
+          _inline: undefined,
+          _text: string,
+          extra?: object,
+        ) => {
+          edits.push(extra ?? {});
+        },
+        sendMessage: async () => ({ message_id: 99 }),
+      },
+      match,
+      formatMatchCard(match),
+      matchCardKeyboard(match),
+    );
+    assert.equal((edits[0] as { message_thread_id?: number }).message_thread_id, 888);
+  });
+
+  it('close roster still works from OPEN', () => {
+    const match = emptyMatch({ status: 'OPEN' });
+    assert.equal(closeMatchRoster(match, 111), true);
+    assert.equal(match.status, 'CLOSED');
+  });
+
+  it('team prep minimum-player validation unchanged after reopen', () => {
+    const match = emptyMatch({ status: 'CLOSED', capacity: 10 });
+    match.participants.push(
+      { telegramId: 1, displayName: 'A', joinedAt: 1 },
+      { telegramId: 2, displayName: 'B', joinedAt: 2 },
+    );
+    assert.deepEqual(canStartTeamPreparation(match, 111), {
+      ok: false,
+      reason: 'too_few',
+    });
+    reopenMatchRoster(match);
+    closeMatchRoster(match, 111);
+    assert.deepEqual(canStartTeamPreparation(match, 111), {
+      ok: false,
+      reason: 'too_few',
+    });
+  });
+
+  it('external RSVP join works after reopen', () => {
+    const match = emptyMatch({ status: 'CLOSED', capacity: 10 });
+    reopenMatchRoster(match);
+    assert.equal(
+      tryJoinMatch(match, { telegramId: 555, displayName: 'External' }),
+      'joined',
+    );
+  });
+
+  it('team prep start remains organizer-only', () => {
+    const match = emptyMatch({ status: 'CLOSED', capacity: 10 });
+    match.participants.push(
+      { telegramId: 1, displayName: 'A', joinedAt: 1 },
+      { telegramId: 2, displayName: 'B', joinedAt: 2 },
+      { telegramId: 3, displayName: 'C', joinedAt: 3 },
+    );
+    assert.deepEqual(canStartTeamPreparation(match, 999), {
+      ok: false,
+      reason: 'not_organizer',
+    });
+  });
+
+  it('non-organizer cannot start team prep after reopen', () => {
+    const match = emptyMatch({ status: 'CLOSED', capacity: 10 });
+    match.participants.push(
+      { telegramId: 1, displayName: 'A', joinedAt: 1 },
+      { telegramId: 2, displayName: 'B', joinedAt: 2 },
+      { telegramId: 3, displayName: 'C', joinedAt: 3 },
+    );
+    reopenMatchRoster(match);
+    assert.deepEqual(canStartTeamPreparation(match, 999), {
+      ok: false,
+      reason: 'not_organizer',
+    });
   });
 });

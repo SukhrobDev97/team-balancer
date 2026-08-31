@@ -276,6 +276,25 @@ export function closeMatchRoster(
   return true;
 }
 
+export type ReopenRosterResult =
+  | 'reopened'
+  | 'not_closed'
+  | 'cancelled'
+  | 'locked';
+
+export function reopenMatchRoster(match: MatchSession): ReopenRosterResult {
+  if (match.teamPreparation?.locked) return 'locked';
+  if (match.status === 'CANCELLED') return 'cancelled';
+  if (match.status !== 'CLOSED') return 'not_closed';
+  match.status = 'OPEN';
+  syncMatchStatus(match);
+  return 'reopened';
+}
+
+export function shouldShowReopenRosterButton(match: MatchSession): boolean {
+  return match.status === 'CLOSED' && !match.teamPreparation?.locked;
+}
+
 export function canPrepareTeams(match: MatchSession): boolean {
   return match.status === 'FULL' || match.status === 'CLOSED';
 }

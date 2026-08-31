@@ -48,6 +48,9 @@ type MatchStaticKey = {
   matchLeave: never;
   matchRoster: never;
   matchCloseRoster: never;
+  matchReopenRoster: never;
+  matchReopenRosterDone: never;
+  matchReopenRosterFail: never;
   matchPrepareTeams: never;
   matchMotm: never;
   matchSquad: never;
@@ -151,6 +154,9 @@ const uz: MatchLocaleMessages = {
   matchLeave: '❌ Bormayman',
   matchRoster: '👥 Ro\'yxat',
   matchCloseRoster: '🔒 Ro\'yxatni yopish',
+  matchReopenRoster: '🔓 Ro\'yxatni qayta ochish',
+  matchReopenRosterDone: '🔓 Ro\'yxat qayta ochildi.',
+  matchReopenRosterFail: '❌ Ro\'yxatni qayta ochib bo\'lmaydi.',
   matchPrepareTeams: '⚙️ Jamoalarni tayyorlash',
   matchMotm: '🏆 MOTM',
   matchSquad: '👥 Tarkib',
@@ -256,6 +262,9 @@ const ru: MatchLocaleMessages = {
   matchLeave: '❌ Не смогу',
   matchRoster: '👥 Список',
   matchCloseRoster: '🔒 Закрыть список',
+  matchReopenRoster: '🔓 Открыть список снова',
+  matchReopenRosterDone: '🔓 Список снова открыт.',
+  matchReopenRosterFail: '❌ Не удалось снова открыть список.',
   matchPrepareTeams: '⚙️ Подготовить команды',
   matchMotm: '🏆 MOTM',
   matchSquad: '👥 Состав',
@@ -361,6 +370,9 @@ const en: MatchLocaleMessages = {
   matchLeave: '❌ Can\'t make it',
   matchRoster: '👥 Roster',
   matchCloseRoster: '🔒 Close roster',
+  matchReopenRoster: '🔓 Reopen roster',
+  matchReopenRosterDone: '🔓 Roster reopened.',
+  matchReopenRosterFail: '❌ Could not reopen roster.',
   matchPrepareTeams: '⚙️ Prepare teams',
   matchMotm: '🏆 MOTM',
   matchSquad: '👥 Squad',
